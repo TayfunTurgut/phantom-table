@@ -115,6 +115,13 @@ def _show_config(game_name: str) -> None:
     console.print((hits[0][:400] + " ...") if hits else "[yellow]no results[/yellow]")
 
 
+def _run_play(game: str, num_players: int, seed: int | None, log_file: str | None) -> None:
+    """Run a full playtest session via the LangGraph orchestration."""
+    from playtest.runner import run_game
+
+    run_game(game, num_players=num_players, seed=seed, log_file=log_file)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="AI Board Game Playtesting Tool")
     subparsers = parser.add_subparsers(dest="command")
@@ -158,6 +165,6 @@ def main() -> None:
     elif args.command == "show-config":
         _show_config(args.game)
     elif args.command == "play":
-        print(f"Play not yet implemented. Game: {args.game}, Players: {args.players}")
+        _run_play(args.game, args.players, args.seed, args.log_file)
     else:
         parser.print_help()
