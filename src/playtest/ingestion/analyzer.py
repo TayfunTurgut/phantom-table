@@ -121,6 +121,7 @@ def _generate_text_with_repair(
 
 # --- Tool definitions -------------------------------------------------------
 
+
 def _build_openai_tool(spec: ActionSpec) -> dict:
     """Assemble a strict-mode OpenAI function schema from an action spec (code-side)."""
     properties: dict[str, dict] = {}
@@ -196,6 +197,7 @@ def generate_tool_definitions(rulebook_text: str) -> dict[str, dict]:
 
 # --- State schema -----------------------------------------------------------
 
+
 def _validate_state_schema(schema: dict) -> None:
     if not isinstance(schema, dict) or not schema:
         raise ValueError("state schema must be a non-empty JSON object")
@@ -231,6 +233,7 @@ def generate_state_schema(rulebook_text: str, num_players: int) -> dict:
 
 
 # --- Initial state ----------------------------------------------------------
+
 
 def _validate_initial_state(num_players: int) -> Callable[[dict], None]:
     revealed = 3 if num_players == 2 else 0
@@ -288,6 +291,7 @@ def generate_initial_state(rulebook_text: str, num_players: int, state_schema: d
 
 
 # --- Prompts ----------------------------------------------------------------
+
 
 def generate_gm_prompt(rulebook_text: str, state_schema: dict, tool_definitions: dict) -> str:
     """Generate the GM system prompt; code appends rules, schema, and tool definitions."""
