@@ -59,9 +59,7 @@ def ingest_rulebook(rulebook_path: str, game_name: str, num_players: int = 2) ->
     _console.print("  [green]generated[/green] initial state")
 
     tool_definitions = generate_tool_definitions(rulebook_text)
-    _console.print(
-        f"  [green]generated[/green] tools - actions: {', '.join(tool_definitions)}"
-    )
+    _console.print(f"  [green]generated[/green] tools - actions: {', '.join(tool_definitions)}")
 
     gm_prompt = generate_gm_prompt(rulebook_text, state_schema, tool_definitions)
     _console.print("  [green]generated[/green] GM prompt")
