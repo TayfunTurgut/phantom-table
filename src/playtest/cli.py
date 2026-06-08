@@ -51,6 +51,70 @@ def _smoke_test() -> None:
     )
 
 
+def _run_ingest(rulebook: str, name: str, num_players: int) -> None:
+    """Run the ingestion pipeline and print a summary of the generated config."""
+    from playtest.ingestion.pipeline import ingest_rulebook
+
+    console = Console()
+    config = ingest_rulebook(rulebook, name, num_players)
+    console.print(
+        Panel(
+            f"[bold]Game:[/bold] {config.game_name} ({config.variant}), "
+            f"{config.num_players} players\n"
+            f"[bold]Config dir:[/bold] {config.config_dir}\n"
+            f"[bold]Tools:[/bold] {', '.join(config.tool_definitions)}\n"
+            f"[bold]Artifacts:[/bold] state_schema.json, initial_state.json, "
+            f"tool_definitions.json, gm_prompt.txt, player_prompt.txt, chromadb/",
+            title="Ingestion Complete",
+            border_style="green",
+        )
+    )
+
+
+def _show_config(game_name: str) -> None:
+    """Load a saved game config and print its tools, schema, prompts, and a sample query."""
+    from pathlib import Path
+
+    from playtest.ingestion.chunker import query_collection
+    from playtest.ingestion.schemas import GameConfig
+
+    console = Console()
+    config_dir = Path(get_settings().game_configs_dir) / game_name
+    if not config_dir.exists():
+        console.print(f"[red]No config found at {config_dir}[/red]")
+        return
+
+    config = GameConfig.load(str(config_dir))
+
+    console.print(
+        Panel(
+            f"[bold]{config.game_name}[/bold] ({config.variant}), {config.num_players} players\n"
+            f"[bold]Config dir:[/bold] {config.config_dir}",
+            title="Game Config",
+            border_style="cyan",
+        )
+    )
+
+    console.print("[bold]Tools:[/bold]")
+    for tool_name, schema in config.tool_definitions.items():
+        description = schema["function"]["description"]
+        console.print(f"  - [cyan]{tool_name}[/cyan]: {description[:80]}")
+
+    properties = config.state_schema.get("properties", config.state_schema)
+    console.print("\n[bold]State schema fields:[/bold] " + ", ".join(properties))
+
+    console.print("\n[bold]GM prompt preview:[/bold]")
+    console.print(config.gm_prompt[:400].strip() + " ...")
+    console.print("\n[bold]Player prompt preview:[/bold]")
+    console.print(config.player_prompt_template[:400].strip() + " ...")
+
+    hits = query_collection(
+        "what does the guard do", game_name, str(config_dir / "chromadb"), n_results=1
+    )
+    console.print("\n[bold]Rulebook query 'what does the guard do':[/bold]")
+    console.print((hits[0][:400] + " ...") if hits else "[yellow]no results[/yellow]")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="AI Board Game Playtesting Tool")
     subparsers = parser.add_subparsers(dest="command")
@@ -63,6 +127,13 @@ def main() -> None:
     ingest_parser.add_argument(
         "--name", type=str, required=True, help="Game name (used as config directory name)"
     )
+    ingest_parser.add_argument("--players", type=int, default=2, help="Number of players")
+
+    # Subcommand: show-config
+    show_parser = subparsers.add_parser(
+        "show-config", help="Load and print a generated game configuration"
+    )
+    show_parser.add_argument("--game", type=str, required=True, help="Game config name")
 
     # Subcommand: play
     play_parser = subparsers.add_parser("play", help="Run a playtest session")
@@ -83,7 +154,9 @@ def main() -> None:
     if args.command == "smoke-test":
         _smoke_test()
     elif args.command == "ingest":
-        print(f"Ingestion not yet implemented. Rulebook: {args.rulebook}")
+        _run_ingest(args.rulebook, args.name, args.players)
+    elif args.command == "show-config":
+        _show_config(args.game)
     elif args.command == "play":
         print(f"Play not yet implemented. Game: {args.game}, Players: {args.players}")
     else:

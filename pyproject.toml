@@ -26,6 +26,7 @@ dependencies = [
     "langchain-openai>=1.2",
     "langchain-core>=1.4",
     "chromadb>=0.5",
+    "tiktoken>=0.13",
     "rich>=14.0",
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
@@ -70,3 +71,7 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+addopts = "-m 'not integration'"
+markers = [
+    "integration: makes real (paid) OpenAI API calls; deselected by default. Run with -m integration.",
+]

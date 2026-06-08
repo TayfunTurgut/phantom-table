@@ -2,9 +2,7 @@
 
 An AI-powered board game playtesting tool. It takes a game's rulebook, processes it into
 a game configuration, then runs autonomous playtests with LLM agents — one Game Master
-(GM) agent that enforces the rules and N player agents that play the game. This repository
-is the project skeleton: structure, dependencies, configuration, and a verified connection
-to the OpenAI API.
+(GM) agent that enforces the rules and N player agents that play the game.
 
 This project uses [uv](https://docs.astral.sh/uv/) as its package manager and task
 runner. Install it first if you haven't:
@@ -34,7 +32,8 @@ there's no need to activate it:
 
 ```bash
 uv run playtest --help                                          # show all subcommands
-uv run playtest ingest --rulebook rules.txt --name love_letter  # (not yet implemented)
+uv run playtest ingest --rulebook rules.txt --name love_letter  # build a game config
+uv run playtest show-config --game love_letter                  # inspect a built config
 uv run playtest play --game love_letter --players 2             # (not yet implemented)
 uv run playtest smoke-test                                      # verify OpenAI connectivity
 ```
@@ -42,6 +41,17 @@ uv run playtest smoke-test                                      # verify OpenAI 
 > Prefer an activated shell? `source .venv/bin/activate` (Windows:
 > `.venv\Scripts\activate`) lets you drop the `uv run` prefix and call `playtest`
 > directly.
+
+## Ingestion
+
+`ingest` turns a rulebook into a game config in `game_configs/<name>/`: an embedded
+(ChromaDB) copy of the rules plus a generated state schema, initial-state template, player
+action tools, GM prompt, and player prompt. Inspect the result with `show-config`.
+
+Rulebooks are inputs you supply at ingest time — point `--rulebook` at any file on your
+machine. Neither the rulebooks nor the generated `game_configs/` output are tracked in git
+(configs are regenerated on demand), and re-running `ingest` with the same `--name`
+overwrites that game's config.
 
 ## Smoke test
 
