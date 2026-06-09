@@ -102,6 +102,62 @@ def test_initialize_game_establishes_state(settings) -> None:
     assert manager.get_removed_card() not in (None, "HIDDEN")
 
 
+def test_build_initial_state_four_players(settings) -> None:
+    agent = _load_agent(_FakeClient())
+    state, _ = agent._build_initial_state(num_players=4, seed=2)
+    assert state["revealed_cards"] == []  # reveal only for 2 players
+    assert len(state["deck"]) == 16 - 1 - 0 - 4
+    assert state["tokens_to_win"] == TOKENS_TO_WIN[4]
+    assert set(state["players"]) == {"player_1", "player_2", "player_3", "player_4"}
+
+
+def test_initialize_game_caps_player_count(settings) -> None:
+    agent = _load_agent(_FakeClient())
+    for n in (5, 6):
+        with pytest.raises(ValueError, match="2, 3, 4"):
+            agent.initialize_game(num_players=n, seed=1)
+
+
+def _force_round_end_state(agent: GMAgent, p1_tokens: int) -> None:
+    """Contrive an empty-deck end: player_1 holds Princess, player_2 a Guard."""
+    state = agent.state_manager.get_state("gm")
+    state["players"]["player_1"]["hand"] = ["Princess"]
+    state["players"]["player_1"]["hand_count"] = 1
+    state["players"]["player_1"]["tokens"] = p1_tokens
+    state["players"]["player_2"]["hand"] = ["Guard"]
+    state["players"]["player_2"]["hand_count"] = 1
+    state["deck"] = []
+    state["deck_count"] = 0
+    agent.state_manager.set_state(state)
+
+
+def test_handle_round_end_resolver_ends_game(settings) -> None:
+    agent = _load_agent(_FakeClient())
+    agent.initialize_game(num_players=2, seed=5)  # tokens_to_win == 7
+    _force_round_end_state(agent, p1_tokens=6)
+
+    res = agent.handle_round_end()
+    assert res.round_ended is True
+    assert res.game_ended is True
+    assert res.winner == "player_1"
+    assert res.winners == ["player_1"]
+    assert res.winning_card == "Princess"
+    assert agent.state_manager.get_state("gm")["players"]["player_1"]["tokens"] == 7
+
+
+def test_handle_round_end_resolver_continues(settings) -> None:
+    agent = _load_agent(_FakeClient())
+    agent.initialize_game(num_players=2, seed=5)
+    _force_round_end_state(agent, p1_tokens=0)
+
+    res = agent.handle_round_end()
+    assert res.round_ended is True
+    assert res.game_ended is False
+    assert res.winners == ["player_1"]
+    # Token awarded deterministically even though the (fake) LLM did not redeal.
+    assert agent.state_manager.get_state("gm")["players"]["player_1"]["tokens"] == 1
+
+
 # --- Integration tests (real LLM, committed config) -------------------------
 
 

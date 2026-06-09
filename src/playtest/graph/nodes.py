@@ -115,7 +115,7 @@ def build_gm_node(
 
             # Valid action: the GM already committed new_state to the manager.
             assert r.new_state is not None  # is_valid implies a committed state
-            transcript = [{"player": current, "narration": r.narration}]
+            transcript: list[dict] = [{"player": current, "narration": r.narration}]
 
             if r.game_ended:
                 return Command(
@@ -134,7 +134,14 @@ def build_gm_node(
             if r.round_ended:
                 rr = gm_agent.handle_round_end()
                 assert rr.new_state is not None  # round end commits the next round's state
-                transcript.append({"event": "round_end", "narration": rr.narration})
+                transcript.append(
+                    {
+                        "event": "round_end",
+                        "narration": rr.narration,
+                        "winners": rr.winners,
+                        "winning_card": rr.winning_card,
+                    }
+                )
                 if rr.game_ended:
                     return Command(
                         goto=_END,

@@ -18,6 +18,7 @@ from typing import Any
 from openai import OpenAI
 from pydantic import BaseModel
 
+from playtest.agents.archetypes import apply_archetype
 from playtest.config import get_settings
 from playtest.ingestion.schemas import GameConfig
 from playtest.tools import ToolRegistry
@@ -43,10 +44,13 @@ class PlayerAgent:
         game_config: GameConfig,
         tool_registry: ToolRegistry,
         openai_client: OpenAI,
+        archetype: str = "default",
     ) -> None:
         self.player_id = player_id
         self.game_config = game_config
-        self.system_prompt = game_config.player_prompt_template.replace("{player_id}", player_id)
+        self.archetype = archetype
+        base_prompt = game_config.player_prompt_template.replace("{player_id}", player_id)
+        self.system_prompt = apply_archetype(base_prompt, archetype)
         self.tool_registry = tool_registry
         self.client = openai_client
         self.model = get_settings().player_model

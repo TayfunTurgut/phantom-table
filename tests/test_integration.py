@@ -221,6 +221,34 @@ def test_next_active_player_skips_eliminated() -> None:
     assert next_active_player(manager, "player_3") == "player_1"  # wraps around
 
 
+def _manager_with(num_players: int, eliminated: set[str]) -> GameStateManager:
+    manager = GameStateManager()
+    state = _init_state(num_players)
+    for pid in eliminated:
+        state["players"][pid]["is_eliminated"] = True
+    manager.initialize(
+        initial_state=state,
+        deck_cards=["Guard"] * 5,
+        removed_card="Princess",
+        revealed_cards=[],
+        player_hands={f"player_{i}": ["Guard"] for i in range(1, num_players + 1)},
+    )
+    return manager
+
+
+def test_next_active_player_all_but_one_eliminated() -> None:
+    # 4 players, only player_1 survives: always returns player_1 regardless of who asks.
+    manager = _manager_with(4, {"player_2", "player_3", "player_4"})
+    assert next_active_player(manager, "player_1") == "player_1"
+    assert next_active_player(manager, "player_3") == "player_1"
+
+
+def test_next_active_player_skips_current_if_eliminated() -> None:
+    # If the current player is itself eliminated (e.g. Prince->Princess self-out), skip it.
+    manager = _manager_with(4, {"player_2"})
+    assert next_active_player(manager, "player_2") == "player_3"
+
+
 def test_play_drives_observer_and_logger_offline(tmp_path) -> None:
     # Full routing through the runner's _play loop against stub-produced deltas.
     steps = [

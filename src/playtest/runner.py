@@ -1,5 +1,6 @@
 """Run a full playtest session, driving the observer and logger from graph events."""
 
+import json
 import uuid
 from pathlib import Path
 
@@ -39,6 +40,7 @@ def run_game(
     seed: int | None = None,
     log_file: str | None = None,
     verbose: bool = False,
+    archetypes: list[str] | None = None,
 ) -> dict:
     console = Console()
     settings = get_settings()
@@ -55,6 +57,7 @@ def run_game(
         tool_registry,
         num_players=num_players,
         seed=seed,
+        archetypes=archetypes,
     )
 
     initial_state: dict = {
@@ -76,7 +79,9 @@ def run_game(
 
     observer = GameObserver(console=console, verbose=verbose)
     logger = GameLogger()
+    logger.set_run_metadata(archetypes=archetypes or ["default"] * num_players)
     final_state = _play(graph, initial_state, observer, logger, seed=seed)
+    logger.set_run_metadata(rule_queries=tool_registry.get_rulebook_query_log())
 
     if log_file:
         logger.save(log_file)
@@ -212,7 +217,13 @@ def _dispatch_gm(
             observer.on_round_end(round_number, winner, scores)
             logger.log_event(
                 "round_end",
-                {"round_number": round_number, "winner": winner, "scores": scores},
+                {
+                    "round_number": round_number,
+                    "winner": winner,
+                    "scores": scores,
+                    "winning_card": entry.get("winning_card"),
+                    "winners": entry.get("winners"),
+                },
             )
         elif "narration" in entry and "player" in entry:
             resolution = {
@@ -265,3 +276,46 @@ def _summary_panel(summary: dict) -> Panel:
         title="Game Summary",
         border_style="green",
     )
+
+
+def run_multiple_games(
+    game_config_name: str,
+    num_games: int,
+    num_players: int,
+    archetypes: list[str] | None = None,
+    seed_start: int = 0,
+    output_dir: str = "results",
+) -> dict:
+    """Run ``num_games`` playtests and collect aggregate results.
+
+    Each game uses ``seed = seed_start + game_index`` for reproducibility and is saved to
+    ``output_dir/game_NNN.json``. A crashing game is skipped (its error written to
+    ``game_NNN_error.json``) so the batch always completes. Returns aggregate analytics.
+    """
+    from playtest.analytics import analyze_games
+
+    console = Console()
+    out = Path(output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+
+    for i in range(num_games):
+        seed = seed_start + i
+        log_path = out / f"game_{i + 1:03d}.json"
+        console.print(f"[cyan]Game {i + 1}/{num_games}[/cyan] (seed={seed})")
+        try:
+            run_game(
+                game_config_name,
+                num_players=num_players,
+                seed=seed,
+                log_file=str(log_path),
+                archetypes=archetypes,
+            )
+        except Exception as exc:  # noqa: BLE001 - skip-and-continue so one bad game never aborts the batch
+            err_path = out / f"game_{i + 1:03d}_error.json"
+            err_path.write_text(
+                json.dumps({"seed": seed, "error": f"{type(exc).__name__}: {exc}"}, indent=2),
+                encoding="utf-8",
+            )
+            console.print(f"[red]Game {i + 1} failed:[/red] {exc} (logged to {err_path})")
+
+    return analyze_games(str(out))

@@ -34,6 +34,60 @@ DECK_COMPOSITION = (
 )
 TOKENS_TO_WIN = {2: 7, 3: 5, 4: 4, 5: 3, 6: 3}
 
+# Classic variant supports 2-4 players; 5-6 need the 21-card deck (Spy/Chancellor).
+SUPPORTED_PLAYER_COUNTS = (2, 3, 4)
+
+CARD_RANK = {
+    "Guard": 1,
+    "Priest": 2,
+    "Baron": 3,
+    "Handmaid": 4,
+    "Prince": 5,
+    "King": 6,
+    "Countess": 7,
+    "Princess": 8,
+}
+
+
+def resolve_round(players: dict) -> dict:
+    """Deterministically score a completed round.
+
+    Surviving (non-eliminated) players each hold exactly one card. The highest
+    ``CARD_RANK`` wins; ties break on the highest sum of discard-pile ranks; any
+    remaining tie is shared (every still-tied player wins). Each winner gains one token.
+
+    Returns ``{"winners": [pid, ...], "winning_card": str, "scores": {pid: new_total}}``.
+    """
+    survivors = {pid: p for pid, p in players.items() if not p.get("is_eliminated", False)}
+    if not survivors:
+        raise ValueError("cannot resolve a round with no surviving players")
+    for pid, p in survivors.items():
+        hand = p.get("hand", [])
+        if len(hand) != 1:
+            raise ValueError(
+                f"survivor {pid} must hold exactly one card at round end, got {hand!r}"
+            )
+
+    def rank(pid: str) -> int:
+        return CARD_RANK[survivors[pid]["hand"][0]]
+
+    def discard_sum(pid: str) -> int:
+        return sum(CARD_RANK[c] for c in survivors[pid].get("discards", []))
+
+    best_rank = max(rank(pid) for pid in survivors)
+    top = [pid for pid in survivors if rank(pid) == best_rank]
+    if len(top) > 1:
+        best_discard = max(discard_sum(pid) for pid in top)
+        top = [pid for pid in top if discard_sum(pid) == best_discard]
+
+    winners = sorted(top)
+    winning_card = survivors[winners[0]]["hand"][0]
+    scores = {pid: p.get("tokens", 0) for pid, p in players.items()}
+    for pid in winners:
+        scores[pid] += 1
+    return {"winners": winners, "winning_card": winning_card, "scores": scores}
+
+
 _MAX_TOOL_ITERATIONS = 8
 
 _STATE_WRITE_INSTRUCTION = (
@@ -71,6 +125,8 @@ class GMResolution(BaseModel):
     round_ended: bool = False
     game_ended: bool = False
     winner: str | None = None
+    winners: list[str] | None = None
+    winning_card: str | None = None
     next_player: str | None = None
     next_phase: str = "draw"
     private_info: dict | None = None
@@ -150,8 +206,23 @@ class GMAgent:
         """Set up and establish a new game. Returns the GM-view state plus narration."""
         if num_players is None:
             num_players = self.game_config.num_players
+        if num_players not in SUPPORTED_PLAYER_COUNTS:
+            raise ValueError(
+                f"Classic Love Letter supports {SUPPORTED_PLAYER_COUNTS} players; "
+                f"{num_players} requires the 21-card deck (Spy/Chancellor), which is out of scope."
+            )
         self._seed = seed
         self._rng = random.Random(seed)
+
+        # Append a count-aware addendum so the GM knows the token goal and that round
+        # scoring is engine-computed (it only narrates/deals). Rebuilt from the config
+        # prompt each call so repeat initializations never stack addenda.
+        self.system_prompt = self.game_config.gm_prompt + (
+            f"\n\n## This Game\nThis game has {num_players} players; the token threshold to "
+            f"win is {TOKENS_TO_WIN[num_players]}. Round scoring (who won the round and token "
+            "awards) is computed by the game engine and given to you — narrate the result and "
+            "deal the next round, but never recompute the winner yourself."
+        )
 
         state, removed_card = self._build_initial_state(num_players, seed)
 
@@ -305,26 +376,70 @@ class GMAgent:
         )
 
     def handle_round_end(self) -> GMResolution:
-        """Resolve a completed round and, if the game continues, deal the next one."""
+        """Score the completed round deterministically; the LLM only narrates and deals.
+
+        The engine (``resolve_round``) decides the winner(s) and token awards — pure
+        arithmetic, not a rules judgment. Awards are committed first; if no one has reached
+        the token goal, the LLM is asked to deal the next round preserving those tokens.
+        """
+        state = self.state_manager.get_state("gm")
+        players = state["players"]
+        tokens_to_win = state["tokens_to_win"]
+        num_players = state["num_players"]
+
+        result = resolve_round(players)
+        winners = result["winners"]
+        winning_card = result["winning_card"]
+        scores = result["scores"]
+        for pid, total in scores.items():
+            players[pid]["tokens"] = total
+        committed = self.state_manager.set_state(state)
+
+        winners_label = ",".join(winners)
+        crossed = [pid for pid in winners if scores[pid] >= tokens_to_win]
+
+        if crossed:
+            # Game over: tokens are committed, no new deal. Tied threshold-crossers share.
+            narration = self._narrate(
+                f"The final round has ended. {winners_label} won the round holding the "
+                f"{winning_card}, reaching the {tokens_to_win}-token goal to win the game. "
+                "Narrate this climactic finish briefly. Do not reveal hidden information."
+            )
+            self.conversation_history.append({"role": "gm", "content": narration})
+            return GMResolution(
+                is_valid=True,
+                action_summary=(
+                    f"{winners_label} won the round with the {winning_card} and won the game."
+                ),
+                narration=narration,
+                new_state=committed,
+                round_ended=True,
+                game_ended=True,
+                winner=",".join(crossed),
+                winners=winners,
+                winning_card=winning_card,
+            )
+
+        # Game continues: the LLM deals the next round from the already-shuffled deck,
+        # preserving the engine-decided tokens. It must NOT recompute scoring.
         next_deck = list(DECK_COMPOSITION)
         self._rng.shuffle(next_deck)
+        reveal_clause = "reveal 3 cards face-up" if num_players == 2 else "reveal no cards"
+        token_lines = ", ".join(f"{pid}={scores[pid]}" for pid in sorted(scores))
 
         user_message = (
-            "The current round has ended (the deck is empty or only one player remains). "
-            "Please:\n"
-            "1. Call get_game_state to see the surviving hands and tokens.\n"
-            "2. Determine the round winner: the highest-ranked card among non-eliminated "
-            "players wins; break ties by the highest sum of discard-pile ranks.\n"
-            "3. Award the winner one token.\n"
-            "4. Check the game-end condition against tokens_to_win.\n"
-            "5. If the game has NOT ended, deal a new round and call set_game_state. "
-            "Use this already-shuffled deck, IN ORDER — do NOT shuffle it again:\n"
+            "The round has ended and scoring is already decided by the engine — do NOT "
+            "recompute it. Results:\n"
+            f"- Round winner(s): {winners_label}, holding the {winning_card}.\n"
+            f"- Final token totals (preserve these exactly): {token_lines}.\n\n"
+            "Deal the next round and call set_game_state. Use this already-shuffled deck, "
+            "IN ORDER — do NOT shuffle it again:\n"
             f"{json.dumps(next_deck)}\n"
-            "Set 'deck' to this exact list, then remove one card, reveal 3 cards for a "
-            "2-player game, and deal one card to each non-eliminated player, taking cards "
-            "from the deck in order. Increment round_number, the round winner takes the "
-            "first turn, set turn_phase to 'draw', reset hands/discards/is_eliminated/"
-            "is_protected, and preserve every player's token count.\n\n"
+            f"Set 'deck' to this exact list, then remove one card, {reveal_clause}, and deal "
+            "one card to each non-eliminated player, taking cards from the deck in order. "
+            "Increment round_number, the round winner takes the first turn, set turn_phase to "
+            "'draw', reset hands/discards/is_eliminated/is_protected, and preserve every "
+            "player's token count exactly as listed above.\n\n"
             f"{_STATE_WRITE_INSTRUCTION}"
         )
 
@@ -342,6 +457,11 @@ class GMAgent:
             set_state_error=loop["set_state_error"],
         )
         resolution.round_ended = True
+        resolution.game_ended = False
+        resolution.winner = None
+        resolution.winners = winners
+        resolution.winning_card = winning_card
+        resolution.next_player = winners[0]
         return resolution
 
     # -- Helpers -------------------------------------------------------------

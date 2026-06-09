@@ -42,10 +42,19 @@ def build_playtest_graph(
     *,
     num_players: int,
     seed: int | None,
+    archetypes: list[str] | None = None,
 ) -> CompiledStateGraph:
+    if archetypes is None:
+        archetypes = ["default"] * num_players
+    if len(archetypes) != num_players:
+        raise ValueError(
+            f"expected {num_players} archetypes (one per player), got {len(archetypes)}"
+        )
     gm_agent = GMAgent(game_config, tool_registry, openai_client)
     player_agents = {
-        f"player_{i}": PlayerAgent(f"player_{i}", game_config, tool_registry, openai_client)
+        f"player_{i}": PlayerAgent(
+            f"player_{i}", game_config, tool_registry, openai_client, archetype=archetypes[i - 1]
+        )
         for i in range(1, num_players + 1)
     }
     gm_node = build_gm_node(gm_agent, state_manager, num_players=num_players, seed=seed)
