@@ -33,7 +33,7 @@ there's no need to activate it:
 ```bash
 uv run playtest --help                                          # show all subcommands
 uv run playtest ingest --rulebook rules.txt --name love_letter  # build a game config
-uv run playtest show-config --game love_letter                  # inspect a built config
+uv run playtest show-config --game love_letter                  # inspect a built config (add --truncate for compact previews)
 uv run playtest play --game love_letter --players 2             # run one playtest
 uv run playtest bulk --game love_letter --num-games 10          # run many, aggregate stats
 uv run playtest analyze --log-dir results                       # analytics from saved logs
@@ -49,7 +49,9 @@ uv run playtest smoke-test                                      # verify OpenAI 
 
 `ingest` turns a rulebook into a game config in `game_configs/<name>/`: an embedded
 (ChromaDB) copy of the rules plus a generated state schema, initial-state template, player
-action tools, GM prompt, and player prompt. Inspect the result with `show-config`.
+action tools, GM prompt, and player prompt. Inspect the result with `show-config`, which
+prints each field in full by default; pass `--truncate` to collapse tool descriptions,
+prompts, and the sample rulebook query to short previews.
 
 Rulebooks are inputs you supply at ingest time — point `--rulebook` at any file on your
 machine. Neither the rulebooks nor the generated `game_configs/` output are tracked in git

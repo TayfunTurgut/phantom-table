@@ -83,8 +83,12 @@ def _run_ingest(rulebook: str, name: str, num_players: int) -> None:
     )
 
 
-def _show_config(game_name: str) -> None:
-    """Load a saved game config and print its tools, schema, prompts, and a sample query."""
+def _show_config(game_name: str, truncate: bool = False) -> None:
+    """Load a saved game config and print its tools, schema, prompts, and a sample query.
+
+    Full field contents are shown by default. Pass ``truncate=True`` for a compact
+    preview (tool descriptions capped at 80 chars, prompts and the sample query at 400).
+    """
     from pathlib import Path
 
     from playtest.ingestion.chunker import query_collection
@@ -98,6 +102,12 @@ def _show_config(game_name: str) -> None:
 
     config = GameConfig.load(str(config_dir))
 
+    def _maybe_truncate(text: str, limit: int) -> str:
+        text = text.strip()
+        if truncate and len(text) > limit:
+            return text[:limit].strip() + " ..."
+        return text
+
     console.print(
         Panel(
             f"[bold]{config.game_name}[/bold] ({config.variant}), {config.num_players} players\n"
@@ -110,21 +120,21 @@ def _show_config(game_name: str) -> None:
     console.print("[bold]Tools:[/bold]")
     for tool_name, schema in config.tool_definitions.items():
         description = schema["function"]["description"]
-        console.print(f"  - [cyan]{tool_name}[/cyan]: {description[:80]}")
+        console.print(f"  - [cyan]{tool_name}[/cyan]: {_maybe_truncate(description, 80)}")
 
     properties = config.state_schema.get("properties", config.state_schema)
     console.print("\n[bold]State schema fields:[/bold] " + ", ".join(properties))
 
-    console.print("\n[bold]GM prompt preview:[/bold]")
-    console.print(config.gm_prompt[:400].strip() + " ...")
-    console.print("\n[bold]Player prompt preview:[/bold]")
-    console.print(config.player_prompt_template[:400].strip() + " ...")
+    console.print("\n[bold]GM prompt:[/bold]")
+    console.print(_maybe_truncate(config.gm_prompt, 400))
+    console.print("\n[bold]Player prompt:[/bold]")
+    console.print(_maybe_truncate(config.player_prompt_template, 400))
 
     hits = query_collection(
         "what does the guard do", game_name, str(config_dir / "chromadb"), n_results=1
     )
     console.print("\n[bold]Rulebook query 'what does the guard do':[/bold]")
-    console.print((hits[0][:400] + " ...") if hits else "[yellow]no results[/yellow]")
+    console.print(_maybe_truncate(hits[0], 400) if hits else "[yellow]no results[/yellow]")
 
 
 def _run_play(
@@ -247,6 +257,11 @@ def main() -> None:
         "show-config", help="Load and print a generated game configuration"
     )
     show_parser.add_argument("--game", type=str, required=True, help="Game config name")
+    show_parser.add_argument(
+        "--truncate",
+        action="store_true",
+        help="Show compact previews instead of full field contents",
+    )
 
     # Subcommand: play
     play_parser = subparsers.add_parser("play", help="Run a playtest session")
@@ -312,7 +327,7 @@ def main() -> None:
     elif args.command == "ingest":
         _run_ingest(args.rulebook, args.name, args.players)
     elif args.command == "show-config":
-        _show_config(args.game)
+        _show_config(args.game, args.truncate)
     elif args.command == "play":
         _run_play(
             args.game,
