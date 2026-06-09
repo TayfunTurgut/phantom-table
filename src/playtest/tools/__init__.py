@@ -44,7 +44,9 @@ class ToolRegistry:
     def execute_tool(self, tool_name: str, tool_args: dict, caller_id: str) -> dict | str:
         """Route a tool call to the right handler."""
         if tool_name == "query_rulebook":
-            return self.rulebook_tool.query(tool_args["query"], tool_args.get("n_results", 3))
+            # n_results isn't exposed in the (strict) query_rulebook schema, so it can
+            # never be supplied; rely on query()'s default.
+            return self.rulebook_tool.query(tool_args["query"])
         if tool_name == "get_game_state":
             return self.get_state_tool.execute(caller_id)
         if tool_name == "set_game_state":

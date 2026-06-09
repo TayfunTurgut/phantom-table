@@ -50,9 +50,7 @@ def apply_archetype(base_prompt: str, archetype: str) -> str:
     Raises ``ValueError`` for an unknown archetype. ``default`` returns the prompt unchanged.
     """
     if archetype not in ARCHETYPES:
-        raise ValueError(
-            f"unknown archetype {archetype!r}; valid options: {sorted(ARCHETYPES)}"
-        )
+        raise ValueError(f"unknown archetype {archetype!r}; valid options: {sorted(ARCHETYPES)}")
     overlay = ARCHETYPES[archetype]
     if not overlay.strip():
         return base_prompt

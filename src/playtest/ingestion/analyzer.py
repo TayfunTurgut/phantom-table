@@ -81,8 +81,9 @@ def _generate_json_with_repair(
     convo = list(messages)
     for attempt in range(max_repairs + 1):
         content = _chat_text(client, convo, json_mode=True)
-        data = json.loads(content)
         try:
+            # JSONDecodeError subclasses ValueError, so non-JSON output is repairable too.
+            data = json.loads(content)
             validate(data)
             return data
         except ValueError as exc:

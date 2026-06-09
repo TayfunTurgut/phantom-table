@@ -65,8 +65,7 @@ def _winners_of(log: dict) -> list[str]:
 def _archetypes_of(log: dict, players: list[str]) -> dict[str, str]:
     archetypes = log.get("archetypes") or ["default"] * len(players)
     return {
-        pid: archetypes[i] if i < len(archetypes) else "default"
-        for i, pid in enumerate(players)
+        pid: archetypes[i] if i < len(archetypes) else "default" for i, pid in enumerate(players)
     }
 
 
@@ -176,9 +175,7 @@ def analyze_games(log_dir: str) -> dict:
                 pass
 
     win_rates = (
-        {pid: win_counts[pid] / games_played for pid in sorted(all_players)}
-        if games_played
-        else {}
+        {pid: win_counts[pid] / games_played for pid in sorted(all_players)} if games_played else {}
     )
 
     card_effectiveness = {
@@ -217,9 +214,7 @@ def analyze_games(log_dir: str) -> dict:
             (sum(game_lengths_min) / len(game_lengths_min)) if game_lengths_min else 0.0
         ),
         "archetype_performance": archetype_performance,
-        "common_rule_queries": [
-            {"query": q, "count": c} for q, c in rule_queries.most_common()
-        ],
+        "common_rule_queries": [{"query": q, "count": c} for q, c in rule_queries.most_common()],
         "round_win_by_card": dict(round_win_by_card),
     }
 

@@ -10,8 +10,14 @@ from playtest.analytics import analyze_games, print_analytics_report
 
 def _players(eliminated: dict[str, bool]) -> dict:
     return {
-        pid: {"hand": ["Guard"], "hand_count": 1, "discards": [], "tokens": 0,
-              "is_eliminated": elim, "is_protected": False}
+        pid: {
+            "hand": ["Guard"],
+            "hand_count": 1,
+            "discards": [],
+            "tokens": 0,
+            "is_eliminated": elim,
+            "is_protected": False,
+        }
         for pid, elim in eliminated.items()
     }
 
@@ -24,8 +30,11 @@ def _game_start(players: dict[str, bool] | None = None) -> dict:
 
 
 def _resolution(player: str, eliminated: dict[str, bool]) -> dict:
-    return {"type": "gm_resolution", "player": player,
-            "state_snapshot": {"players": _players(eliminated)}}
+    return {
+        "type": "gm_resolution",
+        "player": player,
+        "state_snapshot": {"players": _players(eliminated)},
+    }
 
 
 def _round_end(round_number: int, card: str) -> dict:
@@ -38,10 +47,19 @@ def _write(path: Path, log: dict) -> None:
 
 def _base(winner, rounds, turns, archetypes, rule_queries, events, **extra) -> dict:
     log = {
-        "session_id": "s", "game_name": "Love Letter", "variant": "classic",
-        "num_players": 2, "seed": 1, "start_time": None, "end_time": None,
-        "winner": winner, "rounds_played": rounds, "total_turns": turns,
-        "archetypes": archetypes, "rule_queries": rule_queries, "events": events,
+        "session_id": "s",
+        "game_name": "Love Letter",
+        "variant": "classic",
+        "num_players": 2,
+        "seed": 1,
+        "start_time": None,
+        "end_time": None,
+        "winner": winner,
+        "rounds_played": rounds,
+        "total_turns": turns,
+        "archetypes": archetypes,
+        "rule_queries": rule_queries,
+        "events": events,
     }
     log.update(extra)
     return log
@@ -49,44 +67,65 @@ def _base(winner, rounds, turns, archetypes, rule_queries, events, **extra) -> d
 
 def _make_logs(d: Path) -> None:
     # Game 1: player_1 wins; a Guard play eliminates player_2 (successful elimination).
-    _write(d / "game_001.json", _base(
-        winner="player_1", rounds=1, turns=3,
-        archetypes=["aggressive", "cautious"],
-        rule_queries=["How does Baron tie work?", "Can I target a protected player?"],
-        start_time="2026-06-09T10:00:00+00:00", end_time="2026-06-09T10:05:00+00:00",
-        events=[
-            _game_start(),
-            {"type": "player_action", "player": "player_1", "action_type": "play_guard"},
-            {"type": "gm_validation", "player": "player_1", "is_valid": True},
-            _resolution("player_1", {"player_1": False, "player_2": True}),
-            _round_end(1, "Princess"),
-        ],
-    ))
+    _write(
+        d / "game_001.json",
+        _base(
+            winner="player_1",
+            rounds=1,
+            turns=3,
+            archetypes=["aggressive", "cautious"],
+            rule_queries=["How does Baron tie work?", "Can I target a protected player?"],
+            start_time="2026-06-09T10:00:00+00:00",
+            end_time="2026-06-09T10:05:00+00:00",
+            events=[
+                _game_start(),
+                {"type": "player_action", "player": "player_1", "action_type": "play_guard"},
+                {"type": "gm_validation", "player": "player_1", "is_valid": True},
+                _resolution("player_1", {"player_1": False, "player_2": True}),
+                _round_end(1, "Princess"),
+            ],
+        ),
+    )
     # Game 2: player_2 wins; a Guard play (no elimination) + a rejected Baron + a Handmaid.
-    _write(d / "game_002.json", _base(
-        winner="player_2", rounds=2, turns=5,
-        archetypes=["aggressive", "cautious"],
-        rule_queries=["How does Baron tie work?"],
-        events=[
-            _game_start(),
-            {"type": "player_action", "player": "player_1", "action_type": "play_guard"},
-            {"type": "gm_validation", "player": "player_1", "is_valid": True},
-            _resolution("player_1", _ALIVE),
-            {"type": "player_action", "player": "player_2", "action_type": "play_baron"},
-            {"type": "gm_validation", "player": "player_2", "is_valid": False,
-             "error_message": "Baron cannot target a protected player."},
-            {"type": "player_action", "player": "player_2", "action_type": "play_handmaid"},
-            {"type": "gm_validation", "player": "player_2", "is_valid": True},
-            _resolution("player_2", _ALIVE),
-            _round_end(2, "King"),
-        ],
-    ))
+    _write(
+        d / "game_002.json",
+        _base(
+            winner="player_2",
+            rounds=2,
+            turns=5,
+            archetypes=["aggressive", "cautious"],
+            rule_queries=["How does Baron tie work?"],
+            events=[
+                _game_start(),
+                {"type": "player_action", "player": "player_1", "action_type": "play_guard"},
+                {"type": "gm_validation", "player": "player_1", "is_valid": True},
+                _resolution("player_1", _ALIVE),
+                {"type": "player_action", "player": "player_2", "action_type": "play_baron"},
+                {
+                    "type": "gm_validation",
+                    "player": "player_2",
+                    "is_valid": False,
+                    "error_message": "Baron cannot target a protected player.",
+                },
+                {"type": "player_action", "player": "player_2", "action_type": "play_handmaid"},
+                {"type": "gm_validation", "player": "player_2", "is_valid": True},
+                _resolution("player_2", _ALIVE),
+                _round_end(2, "King"),
+            ],
+        ),
+    )
     # Game 3: shared multi-winner (comma-joined).
-    _write(d / "game_003.json", _base(
-        winner="player_1,player_2", rounds=1, turns=2,
-        archetypes=["aggressive", "cautious"], rule_queries=[],
-        events=[_game_start(), _round_end(1, "Countess")],
-    ))
+    _write(
+        d / "game_003.json",
+        _base(
+            winner="player_1,player_2",
+            rounds=1,
+            turns=2,
+            archetypes=["aggressive", "cautious"],
+            rule_queries=[],
+            events=[_game_start(), _round_end(1, "Countess")],
+        ),
+    )
     # An error/partial log (no events) must be skipped.
     _write(d / "game_004_error.json", {"seed": 4, "error": "RuntimeError: boom"})
 

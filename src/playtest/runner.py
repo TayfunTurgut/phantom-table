@@ -212,8 +212,10 @@ def _dispatch_gm(
             )
         elif event == "round_end":
             scores = {pid: p.get("tokens", 0) for pid, p in game_state.get("players", {}).items()}
-            round_number = game_state.get("round_number", 0)
-            winner = update.get("current_player", "")
+            # Report the round that actually ended and its real winner(s), not the next
+            # round's number / starting player carried on the state delta.
+            round_number = entry.get("round_number", game_state.get("round_number", 0))
+            winner = ", ".join(entry.get("winners") or [])
             observer.on_round_end(round_number, winner, scores)
             logger.log_event(
                 "round_end",

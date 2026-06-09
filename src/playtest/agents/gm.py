@@ -49,6 +49,14 @@ CARD_RANK = {
 }
 
 
+def _card_rank(card: str) -> int:
+    """Rank of a card, raising ValueError (not KeyError) on an unknown name."""
+    try:
+        return CARD_RANK[card]
+    except KeyError:
+        raise ValueError(f"unknown card {card!r}") from None
+
+
 def resolve_round(players: dict) -> dict:
     """Deterministically score a completed round.
 
@@ -69,10 +77,10 @@ def resolve_round(players: dict) -> dict:
             )
 
     def rank(pid: str) -> int:
-        return CARD_RANK[survivors[pid]["hand"][0]]
+        return _card_rank(survivors[pid]["hand"][0])
 
     def discard_sum(pid: str) -> int:
-        return sum(CARD_RANK[c] for c in survivors[pid].get("discards", []))
+        return sum(_card_rank(c) for c in survivors[pid].get("discards", []))
 
     best_rank = max(rank(pid) for pid in survivors)
     top = [pid for pid in survivors if rank(pid) == best_rank]
@@ -435,10 +443,11 @@ class GMAgent:
             "Deal the next round and call set_game_state. Use this already-shuffled deck, "
             "IN ORDER — do NOT shuffle it again:\n"
             f"{json.dumps(next_deck)}\n"
-            f"Set 'deck' to this exact list, then remove one card, {reveal_clause}, and deal "
-            "one card to each non-eliminated player, taking cards from the deck in order. "
-            "Increment round_number, the round winner takes the first turn, set turn_phase to "
-            "'draw', reset hands/discards/is_eliminated/is_protected, and preserve every "
+            "All players return for the new round: reset every player's hand and discards to "
+            "empty and set is_eliminated and is_protected to false for ALL players. Then set "
+            f"'deck' to this exact list, remove one card, {reveal_clause}, and deal one card "
+            "to EVERY player, taking cards from the deck in order. Increment round_number, the "
+            "round winner takes the first turn, set turn_phase to 'draw', and preserve every "
             "player's token count exactly as listed above.\n\n"
             f"{_STATE_WRITE_INSTRUCTION}"
         )
@@ -462,6 +471,23 @@ class GMAgent:
         resolution.winners = winners
         resolution.winning_card = winning_card
         resolution.next_player = winners[0]
+
+        # The LLM dealt the next round; don't trust it to have revived everyone. The
+        # resolver depends on these invariants next round, so enforce them now rather
+        # than discovering a silently-excluded player when scoring.
+        if resolution.new_state is not None:
+            for pid, p in resolution.new_state["players"].items():
+                if p.get("is_eliminated", False) or p.get("is_protected", False):
+                    raise ValueError(
+                        f"{pid} was not reset for the new round "
+                        f"(is_eliminated={p.get('is_eliminated')}, "
+                        f"is_protected={p.get('is_protected')})"
+                    )
+                if p.get("hand_count") != 1:
+                    raise ValueError(
+                        f"{pid} must be dealt exactly one card for the new round, "
+                        f"got hand_count={p.get('hand_count')!r}"
+                    )
         return resolution
 
     # -- Helpers -------------------------------------------------------------
@@ -495,7 +521,9 @@ class GMAgent:
             narration=narration,
             new_state=new_state,
             round_ended=bool(summary.get("round_ended", False)),
-            game_ended=bool(summary.get("game_ended", False)),
+            # Per-action resolutions never end the game; only handle_round_end (which runs
+            # the deterministic resolver) may. Ignore any game_ended the LLM hallucinates.
+            game_ended=False,
             winner=summary.get("winner"),
             next_player=summary.get("next_player"),
             next_phase=summary.get("next_phase") or "draw",
