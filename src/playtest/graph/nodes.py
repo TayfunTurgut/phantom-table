@@ -131,7 +131,15 @@ def build_gm_node(
                     },
                 )
 
-            if r.round_ended:
+            # Trust round_ended (an LLM-reported flag) only when the committed state
+            # corroborates it: the deck is exhausted or at most one player survives.
+            # Otherwise a hallucinated round_ended would run the resolver mid-round and
+            # trip its "exactly one card per survivor" check.
+            survivors = [
+                p for p in r.new_state["players"].values() if not p.get("is_eliminated", False)
+            ]
+            round_over = r.new_state.get("deck_count", 0) == 0 or len(survivors) <= 1
+            if r.round_ended and round_over:
                 rr = gm_agent.handle_round_end()
                 assert rr.new_state is not None  # round end commits the next round's state
                 transcript.append(

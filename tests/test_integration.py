@@ -255,7 +255,9 @@ def test_play_drives_observer_and_logger_offline(tmp_path) -> None:
         Step(valid=False, error="not your phase"),
         Step(valid=True, eliminate="player_2", next_player="player_3"),
         Step(valid=True, next_player="player_1"),
-        Step(valid=True, round_ended=True, next_player="player_1"),
+        # Round ends by eliminating the last opponent (only player_1 survives), which is
+        # what gm_node now requires to honor round_ended.
+        Step(valid=True, round_ended=True, eliminate="player_3", next_player="player_1"),
         Step(valid=True, game_ended=True, winner="player_1"),
     ]
     gm = StubGM(3, steps, [Step(valid=True, next_player="player_1")])
