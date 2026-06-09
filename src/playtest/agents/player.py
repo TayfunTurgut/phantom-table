@@ -121,7 +121,19 @@ class PlayerAgent:
                 continue
 
             name = tool_call.function.name
-            args = json.loads(tool_call.function.arguments or "{}")
+            try:
+                args = json.loads(tool_call.function.arguments or "{}")
+            except json.JSONDecodeError as exc:
+                # Malformed tool args from the model: feed the error back and retry
+                # rather than crashing the turn (mirrors the GM loop).
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "content": f"Error: could not parse tool arguments as JSON ({exc}).",
+                    }
+                )
+                continue
             result = self.tool_registry.execute_tool(name, args, self.player_id)
             content = result if isinstance(result, str) else json.dumps(result)
             messages.append({"role": "tool", "tool_call_id": tool_call.id, "content": content})

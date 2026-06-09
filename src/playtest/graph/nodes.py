@@ -148,6 +148,9 @@ def build_gm_node(
                         "narration": rr.narration,
                         "winners": rr.winners,
                         "winning_card": rr.winning_card,
+                        # r.new_state is the round that just ended (handle_round_end may have
+                        # already incremented round_number when dealing the next round).
+                        "round_number": r.new_state["round_number"],
                     }
                 )
                 if rr.game_ended:

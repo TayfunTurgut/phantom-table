@@ -49,6 +49,14 @@ CARD_RANK = {
 }
 
 
+def _card_rank(card: str) -> int:
+    """Rank of a card, raising ValueError (not KeyError) on an unknown name."""
+    try:
+        return CARD_RANK[card]
+    except KeyError:
+        raise ValueError(f"unknown card {card!r}") from None
+
+
 def resolve_round(players: dict) -> dict:
     """Deterministically score a completed round.
 
@@ -69,10 +77,10 @@ def resolve_round(players: dict) -> dict:
             )
 
     def rank(pid: str) -> int:
-        return CARD_RANK[survivors[pid]["hand"][0]]
+        return _card_rank(survivors[pid]["hand"][0])
 
     def discard_sum(pid: str) -> int:
-        return sum(CARD_RANK[c] for c in survivors[pid].get("discards", []))
+        return sum(_card_rank(c) for c in survivors[pid].get("discards", []))
 
     best_rank = max(rank(pid) for pid in survivors)
     top = [pid for pid in survivors if rank(pid) == best_rank]
