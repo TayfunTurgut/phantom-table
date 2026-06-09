@@ -5,8 +5,9 @@ import pytest
 from playtest.agents.gm import resolve_round
 
 
-def _player(hand: list[str], discards: list[str] | None = None, tokens: int = 0,
-            eliminated: bool = False) -> dict:
+def _player(
+    hand: list[str], discards: list[str] | None = None, tokens: int = 0, eliminated: bool = False
+) -> dict:
     return {
         "hand": hand,
         "hand_count": len(hand),

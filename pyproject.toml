@@ -23,14 +23,11 @@ classifiers = [
 dependencies = [
     "openai>=2.13",
     "langgraph>=1.2",
-    "langchain-openai>=1.2",
-    "langchain-core>=1.4",
     "chromadb>=0.5",
     "tiktoken>=0.13",
     "rich>=14.0",
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
-    "python-dotenv>=1.0",
 ]
 
 [project.optional-dependencies]
