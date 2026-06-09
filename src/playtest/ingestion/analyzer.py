@@ -1,4 +1,5 @@
 import json
+import warnings
 from collections.abc import Callable
 
 from openai import OpenAI
@@ -170,25 +171,34 @@ def generate_tool_definitions(rulebook_text: str) -> dict[str, dict]:
     """Extract player actions (Structured Output) and assemble strict-mode tool schemas."""
     client = _client()
     settings = get_settings()
-    completion = client.chat.completions.parse(
-        model=settings.gm_model,
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You analyze a board-game rulebook and list every distinct action a player "
-                    "can take on their turn as a function-calling tool spec. Include one action "
-                    "for drawing a card and one action per playable card. Use snake_case names "
-                    "like 'draw_card' or 'play_guard'. For each action, list ONLY the "
-                    "game-specific parameters (e.g. target_player, named_card). Do NOT include "
-                    "'reasoning' or 'public_statement' — those are added automatically. Use enums "
-                    "where the rules constrain a value (e.g. Guard names a non-Guard card)."
-                ),
-            },
-            {"role": "user", "content": f"Rulebook:\n\n{rulebook_text}"},
-        ],
-        response_format=ActionSpecList,
-    )
+    # OpenAI's .parse() returns ParsedChatCompletion with its generic ContentType left
+    # unbound, so anything that serializes the result (e.g. LangSmith tracing calling
+    # model_dump()) emits a benign "Pydantic serializer warnings ... field_name='parsed'"
+    # UserWarning. The parsed data is correct; silence only that warning around this call.
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore", message="Pydantic serializer warnings", category=UserWarning
+        )
+        completion = client.chat.completions.parse(
+            model=settings.gm_model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You analyze a board-game rulebook and list every distinct action a "
+                        "player can take on their turn as a function-calling tool spec. Include "
+                        "one action for drawing a card and one action per playable card. Use "
+                        "snake_case names like 'draw_card' or 'play_guard'. For each action, list "
+                        "ONLY the game-specific parameters (e.g. target_player, named_card). Do "
+                        "NOT include 'reasoning' or 'public_statement' — those are added "
+                        "automatically. Use enums where the rules constrain a value (e.g. Guard "
+                        "names a non-Guard card)."
+                    ),
+                },
+                {"role": "user", "content": f"Rulebook:\n\n{rulebook_text}"},
+            ],
+            response_format=ActionSpecList,
+        )
     parsed = completion.choices[0].message.parsed
     if parsed is None:
         raise RuntimeError("Action extraction returned no parsed result.")
