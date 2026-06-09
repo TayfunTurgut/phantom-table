@@ -91,7 +91,10 @@ def embed_and_store(chunks: list[dict], collection_name: str, persist_dir: str) 
 
     client = chromadb.PersistentClient(path=persist_dir)
     collection = client.get_or_create_collection(name=collection_name)
-    collection.add(
+    # upsert (not add) as a safety net: the pipeline always nukes the config dir
+    # before this runs, so the collection is normally empty, but upsert keeps the
+    # write idempotent even if it is ever called against a pre-existing collection.
+    collection.upsert(
         ids=[chunk["id"] for chunk in chunks],
         documents=[chunk["text"] for chunk in chunks],
         embeddings=cast(Any, embeddings),

@@ -25,6 +25,10 @@ class RulebookTool:
         self._query_log: list[str] = []
 
     def _get_collection(self) -> Any:
+        # Assumption: the ChromaDB collection is not deleted (e.g. by re-ingestion)
+        # after this tool is constructed. In the PoC, ingestion and gameplay never
+        # overlap in the same process, so the lazily cached client/collection below
+        # always points at a live path.
         if self._collection is None:
             client = chromadb.PersistentClient(path=self._persist_dir)
             self._collection = client.get_collection(name=self._collection_name)

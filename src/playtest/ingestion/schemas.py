@@ -77,6 +77,23 @@ class GameConfig(BaseModel):
     def load(cls, config_dir: str) -> "GameConfig":
         """Load a game configuration from disk."""
         config_path = Path(config_dir)
+
+        required_files = [
+            "config.json",
+            "state_schema.json",
+            "initial_state.json",
+            "tool_definitions.json",
+            "gm_prompt.txt",
+            "player_prompt.txt",
+            "rulebook.txt",
+        ]
+        missing = [name for name in required_files if not (config_path / name).exists()]
+        if missing:
+            raise FileNotFoundError(
+                f"Incomplete game config at {config_path}; missing files: "
+                f"{', '.join(missing)}. Re-run ingestion for this game."
+            )
+
         meta = json.loads((config_path / "config.json").read_text(encoding="utf-8"))
 
         return cls(

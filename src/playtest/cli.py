@@ -58,9 +58,16 @@ def _smoke_test() -> None:
 
 def _run_ingest(rulebook: str, name: str, num_players: int) -> None:
     """Run the ingestion pipeline and print a summary of the generated config."""
+    from pathlib import Path
+
     from playtest.ingestion.pipeline import ingest_rulebook
 
     console = Console()
+
+    config_dir = Path(get_settings().game_configs_dir) / name
+    if config_dir.exists():
+        console.print(f"[yellow]Overwriting existing config for {name}[/yellow]")
+
     config = ingest_rulebook(rulebook, name, num_players)
     console.print(
         Panel(

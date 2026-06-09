@@ -192,6 +192,27 @@ def test_game_config_save_load_roundtrip(tmp_path) -> None:
     assert "{player_id}" in loaded.player_prompt_template
 
 
+def test_game_config_load_rejects_incomplete_config(tmp_path) -> None:
+    config_dir = tmp_path / "love_letter_classic"
+    config = GameConfig(
+        game_name="Love Letter",
+        variant="classic",
+        num_players=2,
+        config_dir=str(config_dir),
+        state_schema={"properties": {"deck_count": {"type": "integer"}}},
+        initial_state_template=EXAMPLE_INITIAL_STATE,
+        tool_definitions={"draw_card": {"type": "function", "function": {"name": "draw_card"}}},
+        gm_prompt="GM prompt text",
+        player_prompt_template="You are {player_id}.",
+        rulebook_text=SAMPLE_RULEBOOK,
+    )
+    config.save()
+    (config_dir / "state_schema.json").unlink()
+
+    with pytest.raises(FileNotFoundError, match="state_schema.json"):
+        GameConfig.load(str(config_dir))
+
+
 @pytest.mark.integration
 def test_ingest_rulebook_end_to_end(openai_client, tmp_path, monkeypatch) -> None:
     """Full pipeline against the live API. Paid; deselected by default (run with -m integration)."""
