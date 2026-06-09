@@ -115,11 +115,49 @@ def _show_config(game_name: str) -> None:
     console.print((hits[0][:400] + " ...") if hits else "[yellow]no results[/yellow]")
 
 
-def _run_play(game: str, num_players: int, seed: int | None, log_file: str | None) -> None:
+def _run_play(
+    game: str, num_players: int, seed: int | None, log_file: str | None, verbose: bool
+) -> None:
     """Run a full playtest session via the LangGraph orchestration."""
     from playtest.runner import run_game
 
-    run_game(game, num_players=num_players, seed=seed, log_file=log_file)
+    run_game(game, num_players=num_players, seed=seed, log_file=log_file, verbose=verbose)
+
+
+def _run_review(log_file: str, full: bool) -> None:
+    """Load a saved game log and print its summary (and, with --full, every event)."""
+    from pathlib import Path
+
+    from playtest.ui.logger import GameLogger
+
+    console = Console()
+    if not Path(log_file).exists():
+        console.print(f"[red]No log file found at {log_file}[/red]")
+        return
+
+    logger = GameLogger.from_file(log_file)
+    log = logger.log
+    summary = logger.get_summary()
+    rejected = summary["actions_rejected"]
+    played = ", ".join(f"{a}×{n}" for a, n in summary["most_played_actions"].items())
+    console.print(
+        Panel(
+            f"[bold]Game:[/bold] {log.get('game_name')} ({log.get('variant')}), "
+            f"{log.get('num_players')} players  [bold]seed:[/bold] {log.get('seed')}\n"
+            f"[bold green]Winner:[/bold green] {summary['winner']}\n"
+            f"[bold]Rounds:[/bold] {summary['rounds_played']}    "
+            f"[bold]Turns:[/bold] {summary['total_turns']}    "
+            f"[bold]Rejections:[/bold] {rejected['count']}\n"
+            f"[bold]Actions:[/bold] {played or 'none'}",
+            title="Game Review",
+            border_style="cyan",
+        )
+    )
+
+    if full:
+        console.print("\n[bold]Events:[/bold]")
+        for event in log.get("events", []):
+            console.print(f"  [dim]{event.get('timestamp', '')}[/dim] [cyan]{event['type']}[/cyan]")
 
 
 def main() -> None:
@@ -152,6 +190,18 @@ def main() -> None:
     play_parser.add_argument(
         "--log-file", type=str, default=None, help="Path to save game log JSON"
     )
+    play_parser.add_argument(
+        "--verbose", action="store_true", help="Show private reasoning and GM internal notes"
+    )
+
+    # Subcommand: review
+    review_parser = subparsers.add_parser("review", help="Review a saved game log")
+    review_parser.add_argument(
+        "--log-file", type=str, required=True, help="Path to a game log JSON"
+    )
+    review_parser.add_argument(
+        "--full", action="store_true", help="Print every event, not just the summary"
+    )
 
     # Subcommand: smoke-test
     subparsers.add_parser("smoke-test", help="Verify OpenAI API connectivity")
@@ -165,6 +215,8 @@ def main() -> None:
     elif args.command == "show-config":
         _show_config(args.game)
     elif args.command == "play":
-        _run_play(args.game, args.players, args.seed, args.log_file)
+        _run_play(args.game, args.players, args.seed, args.log_file, args.verbose)
+    elif args.command == "review":
+        _run_review(args.log_file, args.full)
     else:
         parser.print_help()

@@ -1,14 +1,19 @@
 import copy
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
+from rich.console import Console
 
 from playtest.agents.gm import GMResolution
 from playtest.agents.player import PlayerAction
 from playtest.graph.build import assemble_graph
 from playtest.graph.nodes import build_gm_node, build_player_node, next_active_player
+from playtest.runner import _play
 from playtest.state.manager import GameStateManager
+from playtest.ui.logger import GameLogger
+from playtest.ui.observer import GameObserver
 
 
 def _init_state(num_players: int, tokens_to_win: int = 7) -> dict:
@@ -214,6 +219,45 @@ def test_next_active_player_skips_eliminated() -> None:
     )
     assert next_active_player(manager, "player_1") == "player_3"  # skips eliminated player_2
     assert next_active_player(manager, "player_3") == "player_1"  # wraps around
+
+
+def test_play_drives_observer_and_logger_offline(tmp_path) -> None:
+    # Full routing through the runner's _play loop against stub-produced deltas.
+    steps = [
+        Step(valid=False, error="not your phase"),
+        Step(valid=True, eliminate="player_2", next_player="player_3"),
+        Step(valid=True, next_player="player_1"),
+        Step(valid=True, round_ended=True, next_player="player_1"),
+        Step(valid=True, game_ended=True, winner="player_1"),
+    ]
+    gm = StubGM(3, steps, [Step(valid=True, next_player="player_1")])
+    players = {f"player_{i}": StubPlayer(f"player_{i}", []) for i in range(1, 4)}
+    graph = assemble_graph(
+        build_gm_node(gm, gm.manager, num_players=3, seed=7),
+        build_player_node(players),
+    )
+
+    console = Console(record=True, width=100)
+    observer = GameObserver(console=console, verbose=False)
+    logger = GameLogger()
+    final = _play(graph, _initial_graph_state(3), observer, logger, seed=7)
+
+    assert final["phase"] == "game_over"
+    assert final["winner"] == "player_1"
+
+    types = [e["type"] for e in logger.log["events"]]
+    for expected in ("game_start", "player_action", "gm_resolution", "round_end", "game_end"):
+        assert expected in types
+    assert logger.log["winner"] == "player_1"
+
+    # Saved log reloads and summarizes.
+    path = tmp_path / "game.json"
+    logger.save(str(path))
+    reloaded = json.loads(path.read_text(encoding="utf-8"))
+    assert reloaded["events"]
+
+    out = console.export_text()
+    assert "player_1" in out  # color-coded output rendered
 
 
 @pytest.mark.integration
