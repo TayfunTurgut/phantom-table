@@ -22,6 +22,7 @@ class RulebookTool:
         self._persist_dir = str(Path(game_config_dir) / "chromadb")
         self._collection_name = Path(game_config_dir).name
         self._collection: Any = None
+        self._query_log: list[str] = []
 
     def _get_collection(self) -> Any:
         if self._collection is None:
@@ -35,6 +36,7 @@ class RulebookTool:
         Each chunk is prefixed with its section name (when available) for context.
         Note: every call makes a paid OpenAI embedding request for the query.
         """
+        self._query_log.append(query)
         collection = self._get_collection()
         query_embedding = _embed_texts([query])[0]
         result = collection.query(
@@ -53,6 +55,10 @@ class RulebookTool:
             blocks.append(f"{header}{text}")
 
         return "\n\n---\n\n".join(blocks)
+
+    def get_query_log(self) -> list[str]:
+        """Return every rulebook query string made this game, in order."""
+        return list(self._query_log)
 
     def as_openai_schema(self) -> dict:
         """Return the OpenAI function schema for this tool."""

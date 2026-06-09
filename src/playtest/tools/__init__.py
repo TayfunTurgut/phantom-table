@@ -52,3 +52,7 @@ class ToolRegistry:
                 raise ValueError("only the GM may set game state")
             return self.set_state_tool.execute(tool_args["new_state"])
         return self.action_dispatch.dispatch(tool_name, tool_args)
+
+    def get_rulebook_query_log(self) -> list[str]:
+        """All rulebook query strings made this game (for analytics)."""
+        return self.rulebook_tool.get_query_log()

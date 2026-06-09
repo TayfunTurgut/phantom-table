@@ -23,8 +23,19 @@ class GameLogger:
             "winner": None,
             "rounds_played": 0,
             "total_turns": 0,
+            "archetypes": None,
+            "rule_queries": [],
             "events": [],
         }
+
+    def set_run_metadata(
+        self, archetypes: list[str] | None = None, rule_queries: list[str] | None = None
+    ) -> None:
+        """Record run-level metadata not derivable from the event stream."""
+        if archetypes is not None:
+            self.log["archetypes"] = archetypes
+        if rule_queries is not None:
+            self.log["rule_queries"] = rule_queries
 
     def log_event(self, event_type: str, data: dict) -> None:
         """Append a timestamped event and opportunistically fill header fields."""

@@ -116,12 +116,67 @@ def _show_config(game_name: str) -> None:
 
 
 def _run_play(
-    game: str, num_players: int, seed: int | None, log_file: str | None, verbose: bool
+    game: str,
+    num_players: int,
+    seed: int | None,
+    log_file: str | None,
+    verbose: bool,
+    archetypes: list[str] | None,
 ) -> None:
     """Run a full playtest session via the LangGraph orchestration."""
     from playtest.runner import run_game
 
-    run_game(game, num_players=num_players, seed=seed, log_file=log_file, verbose=verbose)
+    run_game(
+        game,
+        num_players=num_players,
+        seed=seed,
+        log_file=log_file,
+        verbose=verbose,
+        archetypes=archetypes,
+    )
+
+
+def _parse_archetypes(value: str | None) -> list[str] | None:
+    """Split a comma-separated --archetypes value into a list (None when absent)."""
+    if not value:
+        return None
+    return [a.strip() for a in value.split(",")]
+
+
+def _run_bulk(
+    game: str,
+    num_players: int,
+    num_games: int,
+    output_dir: str,
+    archetypes: list[str] | None,
+    seed_start: int,
+) -> None:
+    """Run many playtests, then print aggregate analytics."""
+    from playtest.analytics import print_analytics_report
+    from playtest.runner import run_multiple_games
+
+    analytics = run_multiple_games(
+        game,
+        num_games=num_games,
+        num_players=num_players,
+        archetypes=archetypes,
+        seed_start=seed_start,
+        output_dir=output_dir,
+    )
+    print_analytics_report(analytics, Console())
+
+
+def _run_analyze(log_dir: str) -> None:
+    """Load game logs from a directory and print an analytics report."""
+    from pathlib import Path
+
+    from playtest.analytics import analyze_games, print_analytics_report
+
+    console = Console()
+    if not Path(log_dir).is_dir():
+        console.print(f"[red]No log directory found at {log_dir}[/red]")
+        return
+    print_analytics_report(analyze_games(log_dir), console)
 
 
 def _run_review(log_file: str, full: bool) -> None:
@@ -193,6 +248,37 @@ def main() -> None:
     play_parser.add_argument(
         "--verbose", action="store_true", help="Show private reasoning and GM internal notes"
     )
+    play_parser.add_argument(
+        "--archetypes",
+        type=str,
+        default=None,
+        help="Comma-separated archetype per player (e.g. aggressive,cautious,default)",
+    )
+
+    # Subcommand: bulk
+    bulk_parser = subparsers.add_parser(
+        "bulk", help="Run multiple playtests and print aggregate analytics"
+    )
+    bulk_parser.add_argument("--game", type=str, required=True, help="Game config name")
+    bulk_parser.add_argument("--players", type=int, default=2, help="Number of players")
+    bulk_parser.add_argument("--num-games", type=int, required=True, help="Number of games to run")
+    bulk_parser.add_argument(
+        "--output-dir", type=str, default="results", help="Directory for game logs"
+    )
+    bulk_parser.add_argument(
+        "--archetypes", type=str, default=None, help="Comma-separated archetype per player"
+    )
+    bulk_parser.add_argument(
+        "--seed-start", type=int, default=0, help="First seed (game i uses seed_start + i)"
+    )
+
+    # Subcommand: analyze
+    analyze_parser = subparsers.add_parser(
+        "analyze", help="Compute analytics from a directory of game logs"
+    )
+    analyze_parser.add_argument(
+        "--log-dir", type=str, required=True, help="Directory containing game log JSON files"
+    )
 
     # Subcommand: review
     review_parser = subparsers.add_parser("review", help="Review a saved game log")
@@ -215,7 +301,25 @@ def main() -> None:
     elif args.command == "show-config":
         _show_config(args.game)
     elif args.command == "play":
-        _run_play(args.game, args.players, args.seed, args.log_file, args.verbose)
+        _run_play(
+            args.game,
+            args.players,
+            args.seed,
+            args.log_file,
+            args.verbose,
+            _parse_archetypes(args.archetypes),
+        )
+    elif args.command == "bulk":
+        _run_bulk(
+            args.game,
+            args.players,
+            args.num_games,
+            args.output_dir,
+            _parse_archetypes(args.archetypes),
+            args.seed_start,
+        )
+    elif args.command == "analyze":
+        _run_analyze(args.log_dir)
     elif args.command == "review":
         _run_review(args.log_file, args.full)
     else:
