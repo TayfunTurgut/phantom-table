@@ -3,7 +3,7 @@ from collections.abc import Callable
 
 from openai import OpenAI
 
-from playtest.config import get_settings
+from playtest.config import get_settings, maybe_wrap_openai
 from playtest.ingestion.schemas import ActionSpec, ActionSpecList
 
 # Canonical 2-player structural example, embedded into prompts so the LLM matches the shape.
@@ -62,7 +62,7 @@ _REQUIRED_PLAYER_FIELDS = {
 
 
 def _client() -> OpenAI:
-    return OpenAI(api_key=get_settings().openai_api_key)
+    return maybe_wrap_openai(OpenAI(api_key=get_settings().openai_api_key))
 
 
 def _chat_text(client: OpenAI, messages: list[dict], json_mode: bool = False) -> str:

@@ -3,7 +3,7 @@ import argparse
 from rich.console import Console
 from rich.panel import Panel
 
-from playtest.config import get_settings
+from playtest.config import configure_tracing, get_settings
 
 
 def _smoke_test() -> None:
@@ -216,6 +216,7 @@ def _run_review(log_file: str, full: bool) -> None:
 
 
 def main() -> None:
+    configure_tracing()
     parser = argparse.ArgumentParser(description="AI Board Game Playtesting Tool")
     subparsers = parser.add_subparsers(dest="command")
 

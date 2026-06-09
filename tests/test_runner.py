@@ -2,8 +2,11 @@
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
+import playtest.config as config
 import playtest.runner as runner
+from playtest.config import maybe_wrap_openai
 from playtest.runner import run_multiple_games
 
 
@@ -65,3 +68,38 @@ def test_run_multiple_games_skips_and_continues_on_failure(tmp_path, monkeypatch
     assert (tmp_path / "game_003.json").exists()
     assert (tmp_path / "game_002_error.json").exists()  # failed game logged, batch continued
     assert analytics["games_played"] == 2
+
+
+def test_maybe_wrap_openai_returns_client_unchanged_when_disabled(monkeypatch) -> None:
+    monkeypatch.setattr(
+        config,
+        "get_settings",
+        lambda: SimpleNamespace(langsmith_tracing=False, langsmith_api_key=None),
+    )
+    client = object()
+
+    assert maybe_wrap_openai(client) is client
+
+
+def test_maybe_wrap_openai_wraps_client_when_enabled(monkeypatch) -> None:
+    monkeypatch.setattr(
+        config,
+        "get_settings",
+        lambda: SimpleNamespace(langsmith_tracing=True, langsmith_api_key="test-key"),
+    )
+    import langsmith.wrappers as wrappers
+
+    wrapped = object()
+    calls = []
+
+    def fake_wrap_openai(client):
+        calls.append(client)
+        return wrapped
+
+    monkeypatch.setattr(wrappers, "wrap_openai", fake_wrap_openai)
+    client = object()
+
+    result = maybe_wrap_openai(client)
+
+    assert calls == [client]
+    assert result is wrapped

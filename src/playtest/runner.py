@@ -8,7 +8,7 @@ from openai import OpenAI
 from rich.console import Console
 from rich.panel import Panel
 
-from playtest.config import get_settings
+from playtest.config import get_settings, maybe_wrap_openai
 from playtest.graph.build import build_playtest_graph
 from playtest.ingestion.schemas import GameConfig
 from playtest.state.manager import GameStateManager
@@ -47,7 +47,7 @@ def run_game(
 
     config_dir = Path(settings.game_configs_dir) / game_config_name
     game_config = GameConfig.load(str(config_dir))
-    client = OpenAI(api_key=settings.openai_api_key)
+    client = maybe_wrap_openai(OpenAI(api_key=settings.openai_api_key))
     state_manager = GameStateManager()
     tool_registry = ToolRegistry(game_config, state_manager)
     graph = build_playtest_graph(
@@ -60,9 +60,10 @@ def run_game(
         archetypes=archetypes,
     )
 
+    session_id = str(uuid.uuid4())
     initial_state: dict = {
         "game_config_id": game_config_name,
-        "session_id": str(uuid.uuid4()),
+        "session_id": session_id,
         "game_state": {},
         "current_player": "player_1",
         "turn_phase": "draw",
@@ -80,7 +81,19 @@ def run_game(
     observer = GameObserver(console=console, verbose=verbose)
     logger = GameLogger()
     logger.set_run_metadata(archetypes=archetypes or ["default"] * num_players)
-    final_state = _play(graph, initial_state, observer, logger, seed=seed)
+
+    stream_config: dict = {"recursion_limit": _RECURSION_LIMIT}
+    if settings.langsmith_tracing and settings.langsmith_api_key:
+        stream_config["metadata"] = {
+            "game": game_config_name,
+            "num_players": num_players,
+            "seed": seed,
+            "session_id": session_id,
+        }
+        if archetypes:
+            stream_config["metadata"]["archetypes"] = ",".join(archetypes)
+
+    final_state = _play(graph, initial_state, observer, logger, seed=seed, config=stream_config)
     logger.set_run_metadata(rule_queries=tool_registry.get_rulebook_query_log())
 
     if log_file:
@@ -99,12 +112,15 @@ def _play(
     logger: GameLogger,
     *,
     seed: int | None,
+    config: dict | None = None,
 ) -> dict:
     """Stream graph deltas, dispatch to observer/logger, and rebuild final_state."""
+    if config is None:
+        config = {"recursion_limit": _RECURSION_LIMIT}
     tracker = dict(initial_state)
     ctx = {"session_id": initial_state["session_id"], "seed": seed}
     for chunk in graph.stream(  # type: ignore[attr-defined]
-        initial_state, stream_mode="updates", config={"recursion_limit": _RECURSION_LIMIT}
+        initial_state, stream_mode="updates", config=config
     ):
         for node, update in chunk.items():
             _dispatch(node, update, observer, logger, tracker, ctx)

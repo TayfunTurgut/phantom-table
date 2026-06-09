@@ -5,7 +5,7 @@ import chromadb
 import tiktoken
 from openai import OpenAI
 
-from playtest.config import get_settings
+from playtest.config import get_settings, maybe_wrap_openai
 
 _ENCODING = tiktoken.get_encoding("cl100k_base")
 
@@ -80,7 +80,7 @@ def chunk_rulebook(text: str, max_chunk_tokens: int = 500, game_name: str = "gam
 
 def _embed_texts(texts: list[str]) -> list[list[float]]:
     settings = get_settings()
-    client = OpenAI(api_key=settings.openai_api_key)
+    client = maybe_wrap_openai(OpenAI(api_key=settings.openai_api_key))
     response = client.embeddings.create(model=settings.embedding_model, input=texts)
     return [item.embedding for item in response.data]
 
