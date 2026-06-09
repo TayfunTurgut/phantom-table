@@ -3,7 +3,7 @@ import argparse
 from rich.console import Console
 from rich.panel import Panel
 
-from playtest.config import configure_tracing, get_settings
+from playtest.config import configure_tracing, get_settings, maybe_wrap_openai
 
 
 def _smoke_test() -> None:
@@ -15,7 +15,7 @@ def _smoke_test() -> None:
         from openai import OpenAI
 
         settings = get_settings()
-        client = OpenAI(api_key=settings.openai_api_key)
+        client = maybe_wrap_openai(OpenAI(api_key=settings.openai_api_key))
 
         completion = client.chat.completions.create(
             model=settings.gm_model,
@@ -28,6 +28,10 @@ def _smoke_test() -> None:
             input="playtest smoke test",
         )
         dimension = len(embedding.data[0].embedding)
+        tracing_on = settings.langsmith_tracing and bool(settings.langsmith_api_key)
+        tracing_status = (
+            f"enabled (project {settings.langsmith_project})" if tracing_on else "disabled"
+        )
     except Exception as exc:  # noqa: BLE001 - surface any failure to the user
         console.print(
             Panel(
@@ -44,7 +48,8 @@ def _smoke_test() -> None:
             f"[bold]Chat model:[/bold] {settings.gm_model}\n"
             f"[bold]Response:[/bold] {reply}\n\n"
             f"[bold]Embedding model:[/bold] {settings.embedding_model}\n"
-            f"[bold]Embedding dimension:[/bold] {dimension}",
+            f"[bold]Embedding dimension:[/bold] {dimension}\n\n"
+            f"[bold]Tracing:[/bold] {tracing_status}",
             title="OpenAI Smoke Test",
             border_style="green",
         )

@@ -11,9 +11,12 @@ _LANGSMITH_VARS = ("LANGSMITH_TRACING", "LANGSMITH_API_KEY", "LANGSMITH_PROJECT"
 
 
 @pytest.fixture(autouse=True)
-def _isolate_env(monkeypatch):
+def _isolate_env(monkeypatch, tmp_path):
     """Reset the settings cache and scrub LangChain/LangSmith env so cases don't leak."""
     get_settings.cache_clear()
+    # Settings reads env_file=".env"; run from a dir without one so the developer's
+    # real .env can't bleed into these offline cases.
+    monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("OPENAI_API_KEY", "test-openai-key")
     for var in (*_LANGCHAIN_VARS, *_LANGSMITH_VARS):
         monkeypatch.delenv(var, raising=False)
