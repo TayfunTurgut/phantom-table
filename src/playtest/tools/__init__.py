@@ -1,16 +1,18 @@
 """Tool registry assembling the tool set for each agent type."""
 
+from playtest.ingestion.schemas import GameConfig
 from playtest.state.manager import GameStateManager
 from playtest.tools.actions import PlayerActionDispatch
 from playtest.tools.game_state import GetGameStateTool, SetGameStateTool
 from playtest.tools.rulebook import RulebookTool
 
 
-def _finish_resolution_schema() -> dict:
+def _finish_resolution_schema(phases: list[str]) -> dict:
     """Terminal GM tool: report the structured outcome of a resolution in one call.
 
     Calling this ends the GM's tool loop, so the structured fields come back directly
-    without a second LLM summary call. It performs no state mutation itself.
+    without a second LLM summary call. It performs no state mutation itself. The
+    ``next_phase`` enum is the ingested game's phases — nothing here is game-specific.
     """
     return {
         "type": "function",
@@ -40,9 +42,26 @@ def _finish_resolution_schema() -> dict:
                         "type": "string",
                         "description": "Brief, flavorful description for the players.",
                     },
+                    "turn_ended": {
+                        "type": "boolean",
+                        "description": "Did this action end the acting player's turn?",
+                    },
                     "round_ended": {
                         "type": "boolean",
-                        "description": "Did the deck empty or only one player remain?",
+                        "description": "Did this action end the current round/hand?",
+                    },
+                    "game_ended": {
+                        "type": "boolean",
+                        "description": "Did this action end the whole game?",
+                    },
+                    "winner": {
+                        "type": ["string", "null"],
+                        "description": "If the game ended: the winning player id, or null.",
+                    },
+                    "winners": {
+                        "type": ["array", "null"],
+                        "items": {"type": "string"},
+                        "description": "All winners (shared wins possible), or null.",
                     },
                     "next_player": {
                         "type": ["string", "null"],
@@ -50,13 +69,13 @@ def _finish_resolution_schema() -> dict:
                     },
                     "next_phase": {
                         "type": "string",
-                        "enum": ["draw", "play"],
+                        "enum": phases,
                         "description": "Phase for the next turn.",
                     },
                     "private_info": {
                         "type": ["object", "null"],
                         "description": (
-                            "Info visible only to the acting player (e.g. a Priest reveal)."
+                            "Info visible only to the acting player (e.g. a peeked card)."
                         ),
                     },
                     "gm_reasoning": {
@@ -73,16 +92,12 @@ def _finish_resolution_schema() -> dict:
 class ToolRegistry:
     """Assemble and route tool calls for GM and player agents."""
 
-    def __init__(self, game_config: object, state_manager: GameStateManager) -> None:
-        self.rulebook_tool = RulebookTool(
-            game_config.config_dir,  # type: ignore[attr-defined]
-            game_config.game_name,  # type: ignore[attr-defined]
-        )
+    def __init__(self, game_config: GameConfig, state_manager: GameStateManager) -> None:
+        self.game_config = game_config
+        self.rulebook_tool = RulebookTool(game_config.config_dir, game_config.game_name)
         self.get_state_tool = GetGameStateTool(state_manager)
         self.set_state_tool = SetGameStateTool(state_manager)
-        self.action_dispatch = PlayerActionDispatch(
-            game_config.tool_definitions  # type: ignore[attr-defined]
-        )
+        self.action_dispatch = PlayerActionDispatch(game_config.tool_definitions)
 
     def get_shared_tool_schemas(self) -> list[dict]:
         """Tools available to every agent: query_rulebook + get_game_state."""
@@ -99,7 +114,7 @@ class ToolRegistry:
         """GM schemas: query_rulebook, get_game_state, set_game_state, finish_resolution."""
         return self.get_shared_tool_schemas() + [
             self.set_state_tool.as_openai_schema(),
-            _finish_resolution_schema(),
+            _finish_resolution_schema(self.game_config.game_spec.turn.phases),
         ]
 
     def get_player_tools(self, available_actions: list[str] | None = None) -> list[dict]:

@@ -1,4 +1,5 @@
 import re
+from functools import lru_cache
 from typing import Any, cast
 
 import chromadb
@@ -7,11 +8,16 @@ from openai import OpenAI
 
 from playtest.config import get_settings, maybe_wrap_openai
 
-_ENCODING = tiktoken.get_encoding("cl100k_base")
+
+@lru_cache
+def _encoding() -> tiktoken.Encoding:
+    # Loaded lazily: get_encoding downloads the BPE file on first use, and importing this
+    # module must stay offline-safe (the tool registry imports it transitively).
+    return tiktoken.get_encoding("cl100k_base")
 
 
 def _count_tokens(text: str) -> int:
-    return len(_ENCODING.encode(text))
+    return len(_encoding().encode(text))
 
 
 def _looks_like_header(block: str) -> bool:

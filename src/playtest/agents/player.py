@@ -2,15 +2,14 @@
 
 A player is an LLM agent (gpt-4o-mini) with forced tool calling. The conversation
 is fresh each turn — the game state IS the memory — so token cost does not grow over
-a game. Within a turn the player emits action tool calls in sequence (draw, then,
-having seen the drawn card, play); each is resolved by the GM (via a ``resolve_action``
-callback supplied by the driver) and the updated state is fed back so the next call
-can react. The turn ends when ``resolve_action`` reports the turn is over.
+a game. Within a turn the player emits action tool calls in sequence; each is resolved
+by the GM (via a ``resolve_action`` callback supplied by the driver) and the state
+changes are fed back so the next call can react. The turn ends when ``resolve_action``
+reports the turn is over. A GM-rejected action is fed back as an error so the player
+can choose a different, legal action within the same turn.
 
-The highest-leverage reliability lever is phase-appropriate tool filtering: only
-the action tools that make sense for the current phase and hand are exposed, and
-the Countess rule is enforced structurally (when held with King or Prince, only
-play_countess is available).
+Only the action tools the ingested spec allows in the current phase are exposed;
+finer-grained legality is the GM's judgment, backed by the driver's bounded retry.
 """
 
 import json
@@ -24,10 +23,41 @@ from playtest.agents.archetypes import apply_archetype
 from playtest.config import get_settings
 from playtest.errors import PlaytestError
 from playtest.ingestion.schemas import GameConfig
-from playtest.rules import get_rules
+from playtest.rules import GameRules
 from playtest.tools import ToolRegistry
 
 _OBSERVATION_TOOLS = {"get_game_state", "query_rulebook"}
+
+
+def _state_delta(old: dict, new: dict) -> dict:
+    """Changed fields between two state views (pure JSON comparison, game-agnostic).
+
+    Top-level keys whose value changed are included with their new value; ``players``
+    is narrowed to the players whose entry changed, and within them only the changed
+    fields. Keys that disappeared are reported as ``None``.
+    """
+    delta: dict = {}
+    for key in set(old) | set(new):
+        if key == "players":
+            continue
+        if old.get(key) != new.get(key):
+            delta[key] = new.get(key)
+    old_players = old.get("players", {})
+    new_players = new.get("players", {})
+    players_delta: dict = {}
+    for pid in set(old_players) | set(new_players):
+        old_p = old_players.get(pid, {})
+        new_p = new_players.get(pid, {})
+        changed = {
+            field: new_p.get(field)
+            for field in set(old_p) | set(new_p)
+            if old_p.get(field) != new_p.get(field)
+        }
+        if changed:
+            players_delta[pid] = changed
+    if players_delta:
+        delta["players"] = players_delta
+    return delta
 
 
 class PlayerAction(BaseModel):
@@ -54,7 +84,7 @@ class PlayerAgent:
         self.archetype = archetype
         base_prompt = game_config.player_prompt_template.replace("{player_id}", player_id)
         self.system_prompt = apply_archetype(base_prompt, archetype)
-        self.rules = get_rules(game_config)
+        self.rules = GameRules(game_config)
         self.tool_registry = tool_registry
         self.client = openai_client
         self.model = get_settings().player_model
@@ -133,12 +163,29 @@ class PlayerAgent:
             assert isinstance(proposed, dict)  # action tools return a proposed-action dict
             action = PlayerAction(player_id=self.player_id, **proposed)
             outcome = resolve_action(action)
+            if outcome.get("rejected"):
+                # Nothing was committed: keep the last seen state, retry within the turn.
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "content": (
+                            "Your action was REJECTED by the Game Master: "
+                            f"{outcome.get('error_message')}\n"
+                            "The game state has not changed. Choose a different, legal "
+                            "action (query the rulebook if you are unsure why this was "
+                            "illegal)."
+                        ),
+                    }
+                )
+                continue
+            previous_state = state
             state = outcome["filtered_state"]
             messages.append(
                 {
                     "role": "tool",
                     "tool_call_id": tool_call.id,
-                    "content": self._resolution_feedback(outcome),
+                    "content": self._resolution_feedback(outcome, previous_state),
                 }
             )
             last_action = action
@@ -167,11 +214,16 @@ class PlayerAgent:
         )
         return "\n\n".join(parts)
 
-    def _resolution_feedback(self, outcome: dict) -> str:
+    def _resolution_feedback(self, outcome: dict, previous_state: dict) -> str:
+        """Narration + private info + only the state fields that changed (token-lean)."""
         lines = [outcome.get("narration") or "Action resolved."]
         if outcome.get("private_info"):
             lines.append("Private info: " + json.dumps(outcome["private_info"]))
-        lines.append("Updated state (your view):\n" + json.dumps(outcome["filtered_state"]))
+        delta = _state_delta(previous_state, outcome["filtered_state"])
+        if delta:
+            lines.append("State changes since your last view (your view):\n" + json.dumps(delta))
+        else:
+            lines.append("No visible state changes.")
         return "\n".join(lines)
 
     def _get_available_tools(self, state: dict) -> list[dict]:

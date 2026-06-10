@@ -1,8 +1,9 @@
 """Live terminal observer: color-coded, sequential per-turn rendering with Rich.
 
 Each ``on_*`` method prints immediately (no live-updating Layout) so the output is a
-simple, scrollable transcript. The observer shows only table-side public information —
-never hand contents or the deck.
+simple, scrollable transcript. Rendering is game-agnostic: per-player integer fields
+become columns, boolean fields become status flags, and list fields are never shown
+(only counts) — so table-side output never leaks hidden information regardless of game.
 """
 
 from rich.console import Console
@@ -38,12 +39,9 @@ class GameObserver:
         players = ", ".join(
             f"[{_color(pid)}]{pid}[/{_color(pid)}]" for pid in sorted(state.get("players", {}))
         )
-        revealed = state.get("revealed_cards") or []
         body = (
             f"[bold]{state.get('game_name')}[/bold] ({state.get('variant')})\n"
-            f"[bold]Players:[/bold] {players}\n"
-            f"[bold]Tokens to win:[/bold] {state.get('tokens_to_win')}\n"
-            f"[bold]Revealed:[/bold] {', '.join(revealed) if revealed else 'none'}\n\n"
+            f"[bold]Players:[/bold] {players}\n\n"
             f"{narration}"
         )
         self.console.print(Panel(body, title="Game Start", border_style="cyan"))
@@ -85,60 +83,63 @@ class GameObserver:
     def on_round_end(self, round_number: int, winner: str, scores: dict) -> None:
         self._round_number = round_number
         score_lines = "\n".join(
-            f"  [{_color(pid)}]{pid}[/{_color(pid)}]: {tokens} tokens"
-            for pid, tokens in sorted(scores.items())
+            f"  [{_color(pid)}]{pid}[/{_color(pid)}]: {value}"
+            for pid, value in sorted(scores.items())
         )
         winner_color = _color(winner)
-        self.console.print(
-            Panel(
-                f"[bold]Round {round_number} winner:[/bold] "
-                f"[{winner_color}]{winner}[/{winner_color}]\n{score_lines}",
-                title="Round End",
-                border_style="yellow",
-            )
+        body = (
+            f"[bold]Round {round_number} winner:[/bold] "
+            f"[{winner_color}]{winner}[/{winner_color}]"
         )
+        if score_lines:
+            body += f"\n{score_lines}"
+        self.console.print(Panel(body, title="Round End", border_style="yellow"))
 
     def on_game_end(self, winner: str, final_scores: dict) -> None:
         winner_color = _color(winner) if winner else "white"
         score_lines = "\n".join(
-            f"  [{_color(pid)}]{pid}[/{_color(pid)}]: {tokens} tokens"
-            for pid, tokens in sorted(final_scores.items())
+            f"  [{_color(pid)}]{pid}[/{_color(pid)}]: {value}"
+            for pid, value in sorted(final_scores.items())
         )
-        self.console.print(
-            Panel(
-                f"[bold green]Winner:[/bold green] "
-                f"[{winner_color}]{winner}[/{winner_color}]\n{score_lines}",
-                title="Game Over",
-                border_style="green",
-            )
-        )
+        body = f"[bold green]Winner:[/bold green] [{winner_color}]{winner}[/{winner_color}]"
+        if score_lines:
+            body += f"\n{score_lines}"
+        self.console.print(Panel(body, title="Game Over", border_style="green"))
 
     def on_state_update(self, state: dict) -> None:
         self._round_number = state.get("round_number", self._round_number)
+        players = state.get("players", {})
+        if not players:
+            return
+
+        sample = players[sorted(players)[0]]
+        int_fields = sorted(
+            f for f, v in sample.items() if isinstance(v, int) and not isinstance(v, bool)
+        )
+        bool_fields = sorted(f for f, v in sample.items() if isinstance(v, bool))
+
         table = Table(show_edge=True, expand=False)
         table.add_column("Player")
-        table.add_column("Hand", justify="right")
-        table.add_column("Disc", justify="right")
-        table.add_column("Tok", justify="right")
-        table.add_column("Status")
-        for pid, p in sorted(state.get("players", {}).items()):
-            status = (
-                "eliminated"
-                if p.get("is_eliminated")
-                else "protected"
-                if p.get("is_protected")
-                else "active"
-            )
-            table.add_row(
-                f"[{_color(pid)}]{pid}[/{_color(pid)}]",
-                str(p.get("hand_count", 0)),
-                str(len(p.get("discards", []))),
-                str(p.get("tokens", 0)),
-                status,
-            )
+        for field in int_fields:
+            table.add_column(field, justify="right")
+        if bool_fields:
+            table.add_column("Status")
+        for pid, p in sorted(players.items()):
+            row = [f"[{_color(pid)}]{pid}[/{_color(pid)}]"]
+            row.extend(str(p.get(field, "")) for field in int_fields)
+            if bool_fields:
+                flags = [field for field in bool_fields if p.get(field)]
+                row.append(", ".join(flags) if flags else "-")
+            table.add_row(*row)
         self.console.print(table)
-        revealed = state.get("revealed_cards") or []
-        self.console.print(
-            f"[dim]Deck:{state.get('deck_count', 0)}  Round:{state.get('round_number', 0)}  "
-            f"Revealed:{', '.join(revealed) if revealed else 'none'}[/dim]"
-        )
+
+        counters = {
+            key: value
+            for key, value in state.items()
+            if isinstance(value, int) and not isinstance(value, bool) and key != "num_players"
+        }
+        if counters:
+            self.console.print(
+                "[dim]" + "  ".join(f"{key}:{value}" for key, value in sorted(counters.items()))
+                + "[/dim]"
+            )

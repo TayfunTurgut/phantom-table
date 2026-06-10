@@ -3,7 +3,7 @@ from rich.console import Console
 from playtest.ui.observer import GameObserver
 
 STATE = {
-    "game_name": "Love Letter",
+    "game_name": "Sample Letters",
     "variant": "classic",
     "num_players": 2,
     "tokens_to_win": 7,
@@ -25,7 +25,7 @@ STATE = {
             "hand_count": 1,
             "discards": ["Priest"],
             "tokens": 0,
-            "is_eliminated": False,
+            "is_eliminated": True,
             "is_protected": False,
         },
     },
@@ -49,7 +49,7 @@ def test_game_start_shows_setup_and_narration() -> None:
     obs, console = _observer()
     obs.on_game_start(STATE, "The letters are sealed.")
     out = console.export_text()
-    assert "Love Letter" in out
+    assert "Sample Letters" in out
     assert "The letters are sealed." in out
 
 
@@ -87,16 +87,19 @@ def test_action_rejected_shows_error() -> None:
     assert "protected" in out
 
 
-def test_state_update_table_hides_hand_contents() -> None:
+def test_state_update_table_hides_list_contents() -> None:
     obs, console = _observer()
     obs.on_state_update(STATE)
     out = console.export_text()
-    # Public info shown.
+    # Public per-player ints and bool flags are shown generically.
     assert "player_1" in out
-    assert "Deck" in out and "4" in out
-    # Hand CONTENTS never shown table-side.
+    assert "hand_count" in out
+    assert "is_eliminated" in out  # player_2's truthy flag
+    assert "deck_count" in out and "4" in out
+    # List CONTENTS never shown table-side, whatever the game.
     assert "King" not in out
     assert "Guard" not in out
+    assert "Priest" not in out
 
 
 def test_game_end_banner_shows_winner() -> None:

@@ -1,102 +1,32 @@
+"""Player agent tests: phase-based tool exposure, the turn loop, rejection retry, deltas."""
+
 import copy
 import json
 from types import SimpleNamespace
 
 import pytest
 
-from playtest.agents.player import PlayerAction, PlayerAgent
+from playtest.agents.player import PlayerAction, PlayerAgent, _state_delta
 from playtest.config import get_settings
 from playtest.errors import PlaytestError
 from playtest.state.manager import GameStateManager
 from playtest.tools import ToolRegistry
 
-from .test_state import DECK, REMOVED, REVEALED, TEMPLATE
-
-PLAYER_PROMPT = "You are playing Love Letter, and your player ID is {player_id}."
-
-TOOL_DEFINITIONS = {
-    "draw_card": {
-        "type": "function",
-        "function": {
-            "name": "draw_card",
-            "description": "Draw a card.",
-            "strict": True,
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "reasoning": {"type": "string"},
-                    "public_statement": {"type": "string"},
-                },
-                "required": ["reasoning", "public_statement"],
-                "additionalProperties": False,
-            },
-        },
-    },
-    "play_guard": {
-        "type": "function",
-        "function": {
-            "name": "play_guard",
-            "description": "Play the Guard.",
-            "parameters": {},
-        },
-    },
-    "play_prince": {
-        "type": "function",
-        "function": {
-            "name": "play_prince",
-            "description": "Play the Prince.",
-            "parameters": {},
-        },
-    },
-    "play_king": {
-        "type": "function",
-        "function": {
-            "name": "play_king",
-            "description": "Play the King.",
-            "parameters": {},
-        },
-    },
-    "play_countess": {
-        "type": "function",
-        "function": {
-            "name": "play_countess",
-            "description": "Play the Countess.",
-            "parameters": {},
-        },
-    },
-}
+from .fixtures import sample_config, sample_spec
 
 
 def _tool_names(schemas: list[dict]) -> set[str]:
     return {schema["function"]["name"] for schema in schemas}
 
 
-def _state(turn_phase: str, hand: list[str]) -> dict:
-    return {"turn_phase": turn_phase, "players": {"player_1": {"hand": hand}}}
-
-
-def _make_agent(
-    client: object,
-    *,
-    turn_phase: str = "draw",
-    p1_hand: list[str] | None = None,
-) -> PlayerAgent:
-    template = copy.deepcopy(TEMPLATE)
-    template["turn_phase"] = turn_phase
-    game_config = SimpleNamespace(
-        config_dir="/tmp/does-not-need-to-exist",
-        game_name="Love Letter",
-        player_prompt_template=PLAYER_PROMPT,
-        tool_definitions=copy.deepcopy(TOOL_DEFINITIONS),
-    )
+def _make_agent(client: object, *, turn_phase: str = "draw") -> PlayerAgent:
+    game_config = sample_config()
     manager = GameStateManager()
-    manager.initialize(
-        initial_state=template,
-        deck_cards=DECK,
-        removed_card=REMOVED,
-        revealed_cards=REVEALED,
-        player_hands={"player_1": p1_hand or ["King"], "player_2": ["Guard"]},
-    )
+    state = copy.deepcopy(game_config.initial_state_template)
+    state["turn_phase"] = turn_phase
+    state["deck"] = ["Priest", "Baron"]
+    state["deck_count"] = 2
+    manager.initialize(state, sample_spec().visibility)
     registry = ToolRegistry(game_config, manager)
     return PlayerAgent("player_1", game_config, registry, client)  # type: ignore[arg-type]
 
@@ -131,7 +61,7 @@ class _ScriptedCompletions:
         # Every player LLM call must force a tool call with no parallelism.
         assert kwargs["tool_choice"] == "required"
         assert kwargs["parallel_tool_calls"] is False
-        self.seen_messages.append(kwargs["messages"])  # type: ignore[arg-type]
+        self.seen_messages.append(list(kwargs["messages"]))  # type: ignore[arg-type]
         index = min(self._calls, len(self._messages) - 1)
         self._calls += 1
         return SimpleNamespace(choices=[SimpleNamespace(message=self._messages[index])])
@@ -147,12 +77,19 @@ def _manager_of(agent: PlayerAgent) -> GameStateManager:
     return agent.tool_registry.get_state_tool.manager
 
 
-def _make_resolver(agent: PlayerAgent, record: list[PlayerAction]):
-    """Stub GM resolver: a draw flips to play (hand grows); a play ends the turn."""
+def _make_resolver(agent: PlayerAgent, record: list[PlayerAction], reject_first: int = 0):
+    """Stub GM resolver: a draw flips to play (hand grows); a play ends the turn.
+
+    The first ``reject_first`` calls are rejected, exercising the retry path.
+    """
     manager = _manager_of(agent)
+    rejected = {"left": reject_first}
 
     def resolve(action: PlayerAction) -> dict:
         record.append(action)
+        if rejected["left"] > 0:
+            rejected["left"] -= 1
+            return {"rejected": True, "error_message": "that move is illegal here"}
         view = copy.deepcopy(manager.get_state(action.player_id))
         if action.action_type == "draw_card":
             view["turn_phase"] = "play"
@@ -172,10 +109,10 @@ def _make_resolver(agent: PlayerAgent, record: list[PlayerAction]):
     return resolve
 
 
-def _take_turn(agent: PlayerAgent, record: list[PlayerAction], **kwargs):
+def _take_turn(agent: PlayerAgent, record: list[PlayerAction], resolver=None, **kwargs):
     return agent.take_turn(
         _manager_of(agent).get_state("player_1"),
-        resolve_action=_make_resolver(agent, record),
+        resolve_action=resolver or _make_resolver(agent, record),
         **kwargs,
     )
 
@@ -185,28 +122,22 @@ def _take_turn(agent: PlayerAgent, record: list[PlayerAction], **kwargs):
 
 def test_draw_phase_exposes_only_draw_card(settings) -> None:
     agent = _make_agent(_FakeClient([]), turn_phase="draw")
-    names = _tool_names(agent._get_available_tools(_state("draw", ["King"])))
+    names = _tool_names(agent._get_available_tools({"turn_phase": "draw"}))
     assert names == {"query_rulebook", "get_game_state", "draw_card"}
 
 
-def test_play_phase_exposes_only_matching_play_tools(settings) -> None:
+def test_play_phase_exposes_all_play_tools(settings) -> None:
+    """Phase-level filtering only: legality within the phase is the GM's judgment."""
     agent = _make_agent(_FakeClient([]), turn_phase="play")
-    names = _tool_names(agent._get_available_tools(_state("play", ["Guard", "Prince"])))
-    assert names == {"query_rulebook", "get_game_state", "play_guard", "play_prince"}
-
-
-def test_countess_forced_play_with_king(settings) -> None:
-    agent = _make_agent(_FakeClient([]), turn_phase="play")
-    names = _tool_names(agent._get_available_tools(_state("play", ["Countess", "King"])))
-    action_tools = names - {"query_rulebook", "get_game_state"}
-    assert action_tools == {"play_countess"}
-
-
-def test_countess_forced_play_with_prince(settings) -> None:
-    agent = _make_agent(_FakeClient([]), turn_phase="play")
-    names = _tool_names(agent._get_available_tools(_state("play", ["Countess", "Prince"])))
-    action_tools = names - {"query_rulebook", "get_game_state"}
-    assert action_tools == {"play_countess"}
+    names = _tool_names(agent._get_available_tools({"turn_phase": "play"}))
+    assert names == {
+        "query_rulebook",
+        "get_game_state",
+        "play_guard",
+        "play_prince",
+        "play_king",
+        "play_countess",
+    }
 
 
 # --- take_turn behavior (scripted fake client) ------------------------------
@@ -219,7 +150,17 @@ def test_take_turn_draws_then_plays(settings) -> None:
             _FakeMessage([_FakeToolCall("get_game_state", {"reasoning": "look"})]),
             _FakeMessage([_FakeToolCall("draw_card", {"reasoning": "r", "public_statement": "p"})]),
             _FakeMessage(
-                [_FakeToolCall("play_guard", {"reasoning": "r", "public_statement": "p"})]
+                [
+                    _FakeToolCall(
+                        "play_guard",
+                        {
+                            "target_player": "player_2",
+                            "named_card": "Priest",
+                            "reasoning": "r",
+                            "public_statement": "p",
+                        },
+                    )
+                ]
             ),
         ]
     )
@@ -251,7 +192,7 @@ def test_reasoning_and_public_statement_captured_separately(settings) -> None:
             ),
         ]
     )
-    agent = _make_agent(client, turn_phase="play", p1_hand=["Guard"])
+    agent = _make_agent(client, turn_phase="play")
     record: list[PlayerAction] = []
     action = _take_turn(agent, record)
 
@@ -267,7 +208,17 @@ def test_context_and_private_memory_injected_into_prompt(settings) -> None:
         [
             _FakeMessage([_FakeToolCall("draw_card", {"reasoning": "r", "public_statement": "p"})]),
             _FakeMessage(
-                [_FakeToolCall("play_guard", {"reasoning": "r", "public_statement": "p"})]
+                [
+                    _FakeToolCall(
+                        "play_guard",
+                        {
+                            "target_player": "player_2",
+                            "named_card": "Priest",
+                            "reasoning": "r",
+                            "public_statement": "p",
+                        },
+                    )
+                ]
             ),
         ]
     )
@@ -307,14 +258,17 @@ def test_forced_action_deadline_narrows_tools_and_commits(settings) -> None:
             if "get_game_state" in offered:
                 call = _FakeToolCall("get_game_state", {"reasoning": "again"})
             else:
-                call = _FakeToolCall("play_king", {"reasoning": "r", "public_statement": "s"})
+                call = _FakeToolCall(
+                    "play_king",
+                    {"target_player": "player_2", "reasoning": "r", "public_statement": "s"},
+                )
             return SimpleNamespace(choices=[SimpleNamespace(message=_FakeMessage([call]))])
 
     class _DeadlineClient:
         def __init__(self) -> None:
             self.chat = SimpleNamespace(completions=_DeadlineCompletions())
 
-    agent = _make_agent(_DeadlineClient(), turn_phase="play", p1_hand=["King"])
+    agent = _make_agent(_DeadlineClient(), turn_phase="play")
     record: list[PlayerAction] = []
     action = _take_turn(agent, record)
 
@@ -324,39 +278,105 @@ def test_forced_action_deadline_narrows_tools_and_commits(settings) -> None:
     assert "get_game_state" not in offered_log[max_obs]
 
 
-# --- Integration (real LLM) -------------------------------------------------
+# --- Rejection retry + delta feedback -----------------------------------------
 
 
-@pytest.mark.integration
-def test_take_turn_draws_during_draw_phase(openai_client) -> None:
-    from pathlib import Path
-
-    from playtest.agents.gm import GMAgent
-    from playtest.config import get_settings
-    from playtest.ingestion.schemas import GameConfig
-
-    config_dir = Path(get_settings().game_configs_dir) / "love_letter_classic"
-    if not config_dir.exists():
-        pytest.skip("love_letter_classic config not present; run ingestion first")
-
-    config = GameConfig.load(str(config_dir))
-    registry = ToolRegistry(config, GameStateManager())
-    gm = GMAgent(config, registry, openai_client)
-    gm.initialize_game(seed=1)
-    manager = registry.get_state_tool.manager
-    player = PlayerAgent("player_1", config, registry, openai_client)
-
+def test_rejected_action_feeds_error_back_and_player_retries(settings) -> None:
+    client = _FakeClient(
+        [
+            _FakeMessage(
+                [
+                    _FakeToolCall(
+                        "play_king",
+                        {"target_player": "player_2", "reasoning": "r", "public_statement": "p"},
+                    )
+                ]
+            ),
+            _FakeMessage(
+                [
+                    _FakeToolCall(
+                        "play_guard",
+                        {
+                            "target_player": "player_2",
+                            "named_card": "Priest",
+                            "reasoning": "r",
+                            "public_statement": "p",
+                        },
+                    )
+                ]
+            ),
+        ]
+    )
+    agent = _make_agent(client, turn_phase="play")
     record: list[PlayerAction] = []
+    action = _take_turn(agent, record, resolver=_make_resolver(agent, record, reject_first=1))
 
-    def resolve(action: PlayerAction) -> dict:
-        record.append(action)
-        res = gm.validate_and_resolve(action.model_dump(), "player_1")
-        return {
-            "filtered_state": manager.get_state("player_1"),
-            "narration": res.narration,
-            "private_info": res.private_info,
-            "turn_ended": action.action_type.startswith("play_"),
-        }
+    # Both proposals reached the resolver; the second succeeded and ended the turn.
+    assert [a.action_type for a in record] == ["play_king", "play_guard"]
+    assert action is not None and action.action_type == "play_guard"
+    # The rejection was fed back verbatim as a tool message.
+    rejection_feedback = client.completions.seen_messages[1][-1]["content"]
+    assert "REJECTED" in rejection_feedback
+    assert "that move is illegal here" in rejection_feedback
+    assert "has not changed" in rejection_feedback
 
-    player.take_turn(manager.get_state("player_1"), resolve_action=resolve)
-    assert record[0].action_type == "draw_card"
+
+def test_resolution_feedback_sends_delta_not_full_state(settings) -> None:
+    client = _FakeClient(
+        [
+            _FakeMessage([_FakeToolCall("draw_card", {"reasoning": "r", "public_statement": "p"})]),
+            _FakeMessage(
+                [
+                    _FakeToolCall(
+                        "play_guard",
+                        {
+                            "target_player": "player_2",
+                            "named_card": "Priest",
+                            "reasoning": "r",
+                            "public_statement": "p",
+                        },
+                    )
+                ]
+            ),
+        ]
+    )
+    agent = _make_agent(client, turn_phase="draw")
+    record: list[PlayerAction] = []
+    _take_turn(agent, record)
+
+    first_prompt = client.completions.seen_messages[0][1]["content"]
+    assert "Current game state (your view)" in first_prompt  # first prompt stays full
+
+    draw_feedback = client.completions.seen_messages[1][-1]["content"]
+    assert "State changes since your last view" in draw_feedback
+    delta = json.loads(draw_feedback.split("State changes since your last view (your view):\n")[1])
+    assert delta["turn_phase"] == "play"
+    assert delta["players"]["player_1"]["hand_count"] == 2
+    # Unchanged parts of the state are not re-sent.
+    assert "player_2" not in delta.get("players", {})
+    assert "revealed_cards" not in delta
+
+
+def test_state_delta_helper() -> None:
+    old = {
+        "turn_phase": "draw",
+        "deck_count": 5,
+        "players": {
+            "player_1": {"hand_count": 1, "tokens": 0},
+            "player_2": {"hand_count": 1, "tokens": 0},
+        },
+    }
+    new = {
+        "turn_phase": "play",
+        "deck_count": 4,
+        "players": {
+            "player_1": {"hand_count": 2, "tokens": 0},
+            "player_2": {"hand_count": 1, "tokens": 0},
+        },
+    }
+    assert _state_delta(old, new) == {
+        "turn_phase": "play",
+        "deck_count": 4,
+        "players": {"player_1": {"hand_count": 2}},
+    }
+    assert _state_delta(new, new) == {}

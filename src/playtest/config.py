@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     max_turns: int = 500
     max_tool_iterations: int = 16
     max_observation_calls: int = 6
+    # Per-turn cap on GM-rejected proposals before the run crashes with IllegalAction.
+    # Each rejected attempt consumes one player-loop iteration, so this must stay well
+    # below max_tool_iterations: worst case 6 observations + 4 rejections + 2 actions
+    # = 12 < 16. (The GM's own tool loop has a separate cap in agents/gm.py.)
+    max_action_retries: int = 3
 
 
 @lru_cache

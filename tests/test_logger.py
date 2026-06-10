@@ -25,20 +25,29 @@ def _play_sample_game(logger: GameLogger) -> None:
         "player_action",
         {"player": "player_1", "action_type": "draw_card", "parameters": {}},
     )
-    logger.log_event("gm_validation", {"player": "player_1", "is_valid": True})
+    logger.log_event(
+        "gm_validation", {"player": "player_1", "is_valid": True, "action_type": "draw_card"}
+    )
     logger.log_event(
         "player_action",
         {"player": "player_1", "action_type": "play_guard", "parameters": {"target": "player_2"}},
     )
     logger.log_event(
         "gm_validation",
-        {"player": "player_1", "is_valid": False, "error_message": "player_2 is protected"},
+        {
+            "player": "player_1",
+            "is_valid": False,
+            "action_type": "play_guard",
+            "error_message": "player_2 is protected",
+        },
     )
     logger.log_event(
         "player_action",
         {"player": "player_1", "action_type": "play_guard", "parameters": {"target": "player_2"}},
     )
-    logger.log_event("gm_validation", {"player": "player_1", "is_valid": True})
+    logger.log_event(
+        "gm_validation", {"player": "player_1", "is_valid": True, "action_type": "play_guard"}
+    )
     logger.log_event("round_end", {"round_number": 1, "winner": "player_1", "scores": {}})
     logger.log_event(
         "game_end", {"winner": "player_1", "total_turns": 4, "rounds_played": 1, "final_scores": {}}

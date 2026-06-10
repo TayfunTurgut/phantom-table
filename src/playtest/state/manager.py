@@ -1,12 +1,14 @@
-"""In-memory game state manager with caller-based view filtering."""
+"""In-memory game state manager with spec-driven, caller-based view filtering."""
 
 from copy import deepcopy
 
 from rich.console import Console
 
+from playtest.ingestion.schemas import VisibilitySpec
+
 _console = Console()
 
-_HIDDEN = "HIDDEN"
+HIDDEN = "HIDDEN"
 
 
 def _type_tag(value: object) -> str:
@@ -31,117 +33,109 @@ def _type_tag(value: object) -> str:
 class GameStateManager:
     """Holds the authoritative game state and serves caller-filtered views.
 
-    The internal state holds real player hands and the real deck (under a ``deck``
-    key). The removed card's real value is kept privately and the state field is
-    redacted to ``"HIDDEN"``; all other redaction happens when a player view is read.
+    What is hidden from whom is configured by the ingestion-extracted
+    :class:`VisibilitySpec`, not by game knowledge:
+
+    - ``masked_fields``: top-level fields whose true value is stashed privately and
+      stored/shown as ``"HIDDEN"`` (the GM view restores the real value).
+    - ``hidden_fields``: top-level fields dropped entirely from player views.
+    - ``per_player_private``: per-player list fields redacted to ``["HIDDEN"] * count``
+      in every other player's view.
     """
 
     def __init__(self) -> None:
         self._state: dict | None = None
-        self._removed_card: str | None = None  # actual value, hidden from players
+        self._visibility: VisibilitySpec | None = None
+        self._masked: dict[str, object] = {}  # actual values of masked fields
         self._expected: dict | None = None  # structure captured at initialize()
 
-    def initialize(
-        self,
-        initial_state: dict,
-        deck_cards: list[str],
-        removed_card: str,
-        revealed_cards: list[str],
-        player_hands: dict[str, list[str]],
-    ) -> dict:
-        """Fill the initial-state template with actual (already shuffled) values.
+    def initialize(self, initial_state: dict, visibility: VisibilitySpec) -> dict:
+        """Establish the authoritative state (a complete REAL state, fully dealt).
 
-        - ``removed_card`` is stored privately; the state field shows ``"HIDDEN"``.
-        - ``deck_cards`` is stored in the state under a ``deck`` key (added here;
-          the template only carries ``deck_count``).
-        - ``revealed_cards`` and ``player_hands`` are public / per-player info.
-
-        Returns the GM view of the initialized state.
+        Masked fields' real values are stashed privately; the stored state carries
+        ``"HIDDEN"`` in their place. Returns the GM view.
         """
+        players = initial_state.get("players")
+        if not isinstance(players, dict) or not players:
+            raise ValueError("initial_state must contain a non-empty 'players' object")
+
         state = deepcopy(initial_state)
+        self._visibility = visibility
+        self._masked = {}
+        for field in visibility.masked_fields:
+            if field in state:
+                self._masked[field] = state[field]
+                state[field] = HIDDEN
 
-        players = state.get("players")
-        if not isinstance(players, dict):
-            raise ValueError("initial_state must contain a 'players' object")
-        for player_id, hand in player_hands.items():
-            if player_id not in players:
-                raise ValueError(f"unknown player '{player_id}' not present in template")
-            players[player_id]["hand"] = list(hand)
-            players[player_id]["hand_count"] = len(hand)
-
-        state["revealed_cards"] = list(revealed_cards)
-        state["deck_count"] = len(deck_cards)
-        state["deck"] = list(deck_cards)
-        state["removed_card"] = _HIDDEN
-
-        self._removed_card = removed_card
         self._state = state
         self._expected = self._capture_structure(state)
-
         return self.get_state("gm")
 
     def get_state(self, caller_id: str = "gm") -> dict:
         """Return the game state filtered for the caller.
 
-        GM sees everything (real removed card + deck). A player sees their own hand,
-        other hands redacted to ``["HIDDEN"] * hand_count``, ``removed_card`` as
-        ``"HIDDEN"``, and no deck contents (only ``deck_count``).
+        The GM sees everything (masked fields restored). A player sees their own private
+        fields, other players' private lists redacted, and hidden fields dropped.
         """
-        if self._state is None:
+        if self._state is None or self._visibility is None:
             raise ValueError("state not initialized")
 
         view = deepcopy(self._state)
 
         if caller_id == "gm":
-            view["removed_card"] = self._removed_card
+            for field, value in self._masked.items():
+                view[field] = deepcopy(value)
             return view
 
-        # Player view: redact other hands, drop deck contents, keep removed_card hidden.
-        for player_id, player in view["players"].items():
-            if player_id != caller_id:
-                player["hand"] = [_HIDDEN] * player.get("hand_count", len(player.get("hand", [])))
-        view.pop("deck", None)
+        for player_id, player in view.get("players", {}).items():
+            if player_id == caller_id:
+                continue
+            for field in self._visibility.per_player_private:
+                if field not in player:
+                    continue
+                value = player[field]
+                if isinstance(value, list):
+                    count_field = self._visibility.count_fields.get(field)
+                    count = player.get(count_field, len(value)) if count_field else len(value)
+                    player[field] = [HIDDEN] * count
+                else:
+                    player[field] = HIDDEN
+        for field in self._visibility.hidden_fields:
+            view.pop(field, None)
         return view
 
-    def set_state(self, new_state: dict) -> dict:
+    def set_state(self, new_state: dict, *, remask: bool = False) -> dict:
         """Full replacement of the game state, validated against the captured structure.
 
-        Returns the GM view of the new state.
+        ``remask=True`` re-establishes masked values without the changed-value warning —
+        for engine redeals, where masked fields (e.g. a freshly removed card) legitimately
+        change. Returns the GM view of the new state.
         """
         if not isinstance(new_state, dict):
             raise ValueError("game state must be a JSON object")
-        if self._state is None or self._expected is None:
+        if self._state is None or self._expected is None or self._visibility is None:
             raise ValueError("state not initialized")
 
         self._validate_structure(new_state)
 
-        incoming_removed = new_state["removed_card"]
-        if incoming_removed != _HIDDEN:
-            if self._removed_card is not None and incoming_removed != self._removed_card:
-                _console.print(
-                    f"[yellow]Warning:[/yellow] removed_card changed from "
-                    f"{self._removed_card!r} to {incoming_removed!r}; the removed card "
-                    "should never change mid-game."
-                )
-            self._removed_card = incoming_removed
-
         stored = deepcopy(new_state)
-        stored["removed_card"] = _HIDDEN
+        for field in self._visibility.masked_fields:
+            if field not in stored:
+                continue
+            incoming = stored[field]
+            if incoming != HIDDEN:
+                previous = self._masked.get(field)
+                if not remask and previous is not None and incoming != previous:
+                    _console.print(
+                        f"[yellow]Warning:[/yellow] masked field '{field}' changed from "
+                        f"{previous!r} to {incoming!r}; masked values should never change "
+                        "mid-round."
+                    )
+                self._masked[field] = incoming
+            stored[field] = HIDDEN
         self._state = stored
 
         return self.get_state("gm")
-
-    def get_deck_cards(self) -> list[str]:
-        """GM-only: return actual deck contents in order."""
-        if self._state is None:
-            raise ValueError("state not initialized")
-        return list(self._state["deck"])
-
-    def get_removed_card(self) -> str:
-        """GM-only: return the actual removed card."""
-        if self._removed_card is None:
-            raise ValueError("state not initialized")
-        return self._removed_card
 
     @staticmethod
     def _capture_structure(state: dict) -> dict:

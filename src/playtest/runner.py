@@ -11,6 +11,7 @@ from rich.panel import Panel
 from playtest.agents.gm import GMAgent
 from playtest.agents.player import PlayerAgent
 from playtest.config import get_settings, maybe_wrap_openai
+from playtest.errors import PlaytestError
 from playtest.ingestion.schemas import GameConfig
 from playtest.session import run_session
 from playtest.state.manager import GameStateManager
@@ -105,8 +106,10 @@ def run_multiple_games(
     """Run ``num_games`` playtests and collect aggregate results.
 
     Each game uses ``seed = seed_start + game_index`` for reproducibility and is saved to
-    ``output_dir/game_NNN.json``. A crashing game is skipped (its error written to
-    ``game_NNN_error.json``) so the batch always completes. Returns aggregate analytics.
+    ``output_dir/game_NNN.json``. A game that crashes with a playtest finding
+    (``PlaytestError``/``ValueError``) is skipped — its error written to
+    ``game_NNN_error.json`` — so the batch continues; unexpected errors (API/network,
+    bugs) propagate and abort the batch. Returns aggregate analytics.
     """
     from playtest.analytics import analyze_games
 
@@ -126,7 +129,8 @@ def run_multiple_games(
                 log_file=str(log_path),
                 archetypes=archetypes,
             )
-        except Exception as exc:  # noqa: BLE001 - skip-and-continue so one bad game never aborts the batch
+        # Skip-and-continue: a playtest finding never aborts the batch.
+        except (PlaytestError, ValueError) as exc:
             err_path = out / f"game_{i + 1:03d}_error.json"
             err_path.write_text(
                 json.dumps({"seed": seed, "error": f"{type(exc).__name__}: {exc}"}, indent=2),

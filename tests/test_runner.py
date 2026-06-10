@@ -4,9 +4,12 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 import playtest.config as config
 import playtest.runner as runner
 from playtest.config import maybe_wrap_openai
+from playtest.errors import PlaytestError
 from playtest.runner import run_multiple_games
 
 
@@ -41,7 +44,7 @@ def test_run_multiple_games_writes_logs_and_aggregates(tmp_path, monkeypatch) ->
     monkeypatch.setattr(runner, "run_game", fake_run_game)
 
     analytics = run_multiple_games(
-        "love_letter_classic", num_games=3, num_players=2, output_dir=str(tmp_path)
+        "sample_letters", num_games=3, num_players=2, output_dir=str(tmp_path)
     )
 
     for name in ("game_001.json", "game_002.json", "game_003.json"):
@@ -49,25 +52,40 @@ def test_run_multiple_games_writes_logs_and_aggregates(tmp_path, monkeypatch) ->
     assert analytics["games_played"] == 3
 
 
-def test_run_multiple_games_skips_and_continues_on_failure(tmp_path, monkeypatch) -> None:
+def test_run_multiple_games_skips_and_continues_on_playtest_failure(tmp_path, monkeypatch) -> None:
     def fake_run_game(
         game_config_name, num_players=2, seed=None, log_file=None, verbose=False, archetypes=None
     ):
         if seed == 1:  # seed_start 0 -> seeds 0, 1, 2; fail the middle game
-            raise RuntimeError("boom")
+            raise PlaytestError("boom")
         Path(log_file).write_text(json.dumps(_fake_log("player_2")), encoding="utf-8")
         return {"final_state": {}, "summary": {}}
 
     monkeypatch.setattr(runner, "run_game", fake_run_game)
 
     analytics = run_multiple_games(
-        "love_letter_classic", num_games=3, num_players=2, output_dir=str(tmp_path)
+        "sample_letters", num_games=3, num_players=2, output_dir=str(tmp_path)
     )
 
     assert (tmp_path / "game_001.json").exists()
     assert (tmp_path / "game_003.json").exists()
     assert (tmp_path / "game_002_error.json").exists()  # failed game logged, batch continued
     assert analytics["games_played"] == 2
+
+
+def test_run_multiple_games_propagates_unexpected_errors(tmp_path, monkeypatch) -> None:
+    def fake_run_game(
+        game_config_name, num_players=2, seed=None, log_file=None, verbose=False, archetypes=None
+    ):
+        raise RuntimeError("API exploded")  # not a playtest finding -> abort the batch
+
+    monkeypatch.setattr(runner, "run_game", fake_run_game)
+
+    with pytest.raises(RuntimeError, match="API exploded"):
+        run_multiple_games(
+            "sample_letters", num_games=3, num_players=2, output_dir=str(tmp_path)
+        )
+    assert not (tmp_path / "game_001_error.json").exists()
 
 
 def test_maybe_wrap_openai_returns_client_unchanged_when_disabled(monkeypatch) -> None:

@@ -76,7 +76,8 @@ def _run_ingest(rulebook: str, name: str, num_players: int) -> None:
             f"[bold]Config dir:[/bold] {config.config_dir}\n"
             f"[bold]Tools:[/bold] {', '.join(config.tool_definitions)}\n"
             f"[bold]Artifacts:[/bold] state_schema.json, initial_state.json, "
-            f"tool_definitions.json, gm_prompt.txt, player_prompt.txt, chromadb/",
+            f"tool_definitions.json, game_spec.json, gm_prompt.txt, player_prompt.txt, "
+            f"chromadb/",
             title="Ingestion Complete",
             border_style="green",
         )
@@ -125,6 +126,16 @@ def _show_config(game_name: str, truncate: bool = False) -> None:
     properties = config.state_schema.get("properties", config.state_schema)
     console.print("\n[bold]State schema fields:[/bold] " + ", ".join(properties))
 
+    spec = config.game_spec
+    console.print(
+        "\n[bold]Game spec:[/bold] "
+        f"players {spec.supported_player_counts}; "
+        f"phases {' -> '.join(spec.turn.phases)}; "
+        f"{len(spec.components)} component types across {len(spec.component_zones)} zones; "
+        f"rounds: {'yes' if spec.has_rounds else 'no'}"
+        + (f"; score field: {spec.score_field}" if spec.score_field else "")
+    )
+
     console.print("\n[bold]GM prompt:[/bold]")
     console.print(_maybe_truncate(config.gm_prompt, 400))
     console.print("\n[bold]Player prompt:[/bold]")
@@ -145,7 +156,7 @@ def _run_play(
     verbose: bool,
     archetypes: list[str] | None,
 ) -> None:
-    """Run a full playtest session via the LangGraph orchestration."""
+    """Run a full playtest session via the plain turn-loop driver."""
     from playtest.runner import run_game
 
     run_game(

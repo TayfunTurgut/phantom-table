@@ -11,7 +11,11 @@ class PlaytestError(Exception):
 
 
 class IllegalAction(PlaytestError):
-    """The GM judged a proposed player action illegal under the rules."""
+    """A player exhausted the per-turn retry budget proposing illegal actions.
+
+    Individual rejections are fed back to the player (a playtest signal, not a crash);
+    this is raised only when ``max_action_retries`` is exceeded within one turn.
+    """
 
     def __init__(self, player_id: str, action: dict, reason: str) -> None:
         self.player_id = player_id

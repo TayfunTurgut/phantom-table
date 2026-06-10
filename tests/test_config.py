@@ -78,3 +78,15 @@ def test_settings_langsmith_defaults_when_absent():
     assert settings.langsmith_tracing is False
     assert settings.langsmith_api_key is None
     assert settings.langsmith_project == "phantom-table"
+
+
+def test_action_retry_cap_fits_inside_player_tool_loop():
+    settings = get_settings()
+
+    assert settings.max_action_retries == 3
+    # Each rejected attempt consumes one player-loop iteration; the cap must leave room
+    # for observations and the real actions (see the comment on the Settings field).
+    worst_case = (
+        settings.max_observation_calls + (settings.max_action_retries + 1) + 2
+    )
+    assert worst_case < settings.max_tool_iterations

@@ -23,6 +23,7 @@ class RulebookTool:
         self._collection_name = Path(game_config_dir).name
         self._collection: Any = None
         self._query_log: list[str] = []
+        self._query_cache: dict[str, str] = {}
 
     def _get_collection(self) -> Any:
         # Assumption: the ChromaDB collection is not deleted (e.g. by re-ingestion)
@@ -38,9 +39,14 @@ class RulebookTool:
         """Search the embedded rulebook and return the top-k chunks as text.
 
         Each chunk is prefixed with its section name (when available) for context.
-        Note: every call makes a paid OpenAI embedding request for the query.
+        Results are cached per query string (``n_results`` never varies — the tool schema
+        does not expose it), so only the first occurrence of a query pays for an OpenAI
+        embedding request. Repeats still land in the query log for analytics.
         """
         self._query_log.append(query)
+        cached = self._query_cache.get(query)
+        if cached is not None:
+            return cached
         collection = self._get_collection()
         query_embedding = _embed_texts([query])[0]
         result = collection.query(
@@ -58,7 +64,9 @@ class RulebookTool:
             header = f"[{section}]\n" if section else ""
             blocks.append(f"{header}{text}")
 
-        return "\n\n---\n\n".join(blocks)
+        result_text = "\n\n---\n\n".join(blocks)
+        self._query_cache[query] = result_text
+        return result_text
 
     def get_query_log(self) -> list[str]:
         """Return every rulebook query string made this game, in order."""

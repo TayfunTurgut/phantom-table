@@ -1,8 +1,10 @@
 """Aggregate analytics over a directory of game logs.
 
 Everything here is derived from the structured logs written by ``GameLogger`` — the
-event stream plus the run-level header (archetypes, rule queries). Partial/error logs
-(no ``events``) are skipped so a failed game in a bulk run never breaks aggregation.
+event stream plus the run-level header (archetypes, rule queries). Nothing is
+game-specific: actions are counted by their raw ``action_type`` (the ingested tool
+names). Partial/error logs (no ``events``) are skipped so a failed game in a bulk run
+never breaks aggregation.
 """
 
 import json
@@ -15,23 +17,6 @@ from rich.panel import Panel
 from rich.table import Table
 
 from playtest.ui.logger import GameLogger
-
-_CARDS = ["Guard", "Priest", "Baron", "Handmaid", "Prince", "King", "Countess", "Princess"]
-# Cards whose play can directly eliminate an opponent (so effectiveness is meaningful).
-_ELIMINATION_CARDS = {"Guard", "Baron", "Prince"}
-
-
-def _card_from_action(action_type: str) -> str | None:
-    """Map an action_type like ``play_guard`` to the canonical card name ``Guard``."""
-    if not action_type.startswith("play_"):
-        return None
-    name = action_type[len("play_") :].capitalize()
-    return name if name in _CARDS else None
-
-
-def _eliminated_count(snapshot: dict) -> int:
-    players = (snapshot or {}).get("players", {})
-    return sum(1 for p in players.values() if p.get("is_eliminated"))
 
 
 def _load_logs(log_dir: str) -> list[dict]:
@@ -69,37 +54,6 @@ def _archetypes_of(log: dict, players: list[str]) -> dict[str, str]:
     }
 
 
-def _card_effectiveness(log: dict) -> dict[str, dict[str, int]]:
-    """Pair each player_action with its own next gm_resolution; count eliminations caused."""
-    stats: dict[str, dict[str, int]] = {
-        c: {"played": 0, "successful_elimination": 0} for c in _ELIMINATION_CARDS
-    }
-    prev_snapshot: dict | None = None
-    pending_card: str | None = None
-    for e in log["events"]:
-        etype = e["type"]
-        if etype == "game_start":
-            prev_snapshot = e.get("state")
-        elif etype == "round_end":
-            prev_snapshot = None  # new round resets eliminations; don't compare across it
-            pending_card = None
-        elif etype == "player_action":
-            # Latest action before a resolution wins, so retried actions pair correctly.
-            pending_card = _card_from_action(e.get("action_type", ""))
-        elif etype == "gm_resolution":
-            snapshot = e.get("state_snapshot")
-            if pending_card in _ELIMINATION_CARDS:
-                stats[pending_card]["played"] += 1
-                caused = prev_snapshot is not None and (
-                    _eliminated_count(snapshot) > _eliminated_count(prev_snapshot)
-                )
-                if caused:
-                    stats[pending_card]["successful_elimination"] += 1
-            prev_snapshot = snapshot
-            pending_card = None
-    return stats
-
-
 def analyze_games(log_dir: str) -> dict:
     """Load all game logs from a directory and produce aggregate analytics."""
     logs = _load_logs(log_dir)
@@ -110,10 +64,7 @@ def analyze_games(log_dir: str) -> dict:
     total_rounds = 0
     total_turns = 0
     per_game_turns: list[int] = []
-    card_play_frequency: Counter[str] = Counter()
-    effectiveness: dict[str, dict[str, int]] = {
-        c: {"played": 0, "successful_elimination": 0} for c in _ELIMINATION_CARDS
-    }
+    action_frequency: Counter[str] = Counter()
     total_validations = 0
     total_rejections = 0
     rejection_reasons: Counter[str] = Counter()
@@ -121,7 +72,6 @@ def analyze_games(log_dir: str) -> dict:
     archetype_games: Counter[str] = Counter()
     archetype_wins: Counter[str] = Counter()
     rule_queries: Counter[str] = Counter()
-    round_win_by_card: Counter[str] = Counter()
 
     for log in logs:
         players = _player_ids(log)
@@ -147,24 +97,15 @@ def analyze_games(log_dir: str) -> dict:
         for e in log["events"]:
             etype = e["type"]
             if etype == "player_action":
-                card = _card_from_action(e.get("action_type", ""))
-                if card:
-                    card_play_frequency[card] += 1
+                action = e.get("action_type")
+                if action:
+                    action_frequency[action] += 1
             elif etype == "gm_validation":
                 total_validations += 1
                 if e.get("is_valid") is False:
                     total_rejections += 1
                     reason = (e.get("error_message") or "unspecified").strip()
                     rejection_reasons[reason] += 1
-            elif etype == "round_end":
-                card = e.get("winning_card")
-                if card:
-                    round_win_by_card[card] += 1
-
-        game_eff = _card_effectiveness(log)
-        for card, s in game_eff.items():
-            effectiveness[card]["played"] += s["played"]
-            effectiveness[card]["successful_elimination"] += s["successful_elimination"]
 
         start, end = log.get("start_time"), log.get("end_time")
         if start and end:
@@ -177,15 +118,6 @@ def analyze_games(log_dir: str) -> dict:
     win_rates = (
         {pid: win_counts[pid] / games_played for pid in sorted(all_players)} if games_played else {}
     )
-
-    card_effectiveness = {
-        card: {
-            "played": s["played"],
-            "successful_elimination": s["successful_elimination"],
-            "rate": (s["successful_elimination"] / s["played"]) if s["played"] else 0.0,
-        }
-        for card, s in effectiveness.items()
-    }
 
     archetype_performance = {
         arch: {
@@ -204,8 +136,7 @@ def analyze_games(log_dir: str) -> dict:
         "avg_turns_per_round": (total_turns / total_rounds) if total_rounds else 0.0,
         "avg_turns_per_game": (total_turns / games_played) if games_played else 0.0,
         "win_rates": win_rates,
-        "card_play_frequency": dict(card_play_frequency),
-        "card_effectiveness": card_effectiveness,
+        "action_frequency": dict(action_frequency),
         "action_rejection_rate": (
             (total_rejections / total_validations) if total_validations else 0.0
         ),
@@ -215,7 +146,6 @@ def analyze_games(log_dir: str) -> dict:
         ),
         "archetype_performance": archetype_performance,
         "common_rule_queries": [{"query": q, "count": c} for q, c in rule_queries.most_common()],
-        "round_win_by_card": dict(round_win_by_card),
     }
 
 
@@ -241,21 +171,15 @@ def print_analytics_report(analytics: dict, console: Console) -> None:
         win_table.add_row(pid, f"{rate:.1%}")
     console.print(win_table)
 
-    card_table = Table(title="Card Usage & Effectiveness")
-    card_table.add_column("Card")
-    card_table.add_column("Played", justify="right")
-    card_table.add_column("Eliminations", justify="right")
-    card_table.add_column("Rate", justify="right")
-    eff = analytics["card_effectiveness"]
-    for card, count in sorted(analytics["card_play_frequency"].items(), key=lambda kv: -kv[1]):
-        e = eff.get(card)
-        if e:
-            card_table.add_row(
-                card, str(count), str(e["successful_elimination"]), f"{e['rate']:.1%}"
-            )
-        else:
-            card_table.add_row(card, str(count), "-", "-")
-    console.print(card_table)
+    if analytics["action_frequency"]:
+        action_table = Table(title="Action Frequency")
+        action_table.add_column("Action")
+        action_table.add_column("Count", justify="right")
+        for action, count in sorted(
+            analytics["action_frequency"].items(), key=lambda kv: -kv[1]
+        ):
+            action_table.add_row(action, str(count))
+        console.print(action_table)
 
     if analytics["archetype_performance"]:
         arch_table = Table(title="Archetype Performance")
@@ -266,14 +190,6 @@ def print_analytics_report(analytics: dict, console: Console) -> None:
         for arch, s in analytics["archetype_performance"].items():
             arch_table.add_row(arch, str(s["games"]), str(s["wins"]), f"{s['win_rate']:.1%}")
         console.print(arch_table)
-
-    if analytics["round_win_by_card"]:
-        rwc = Table(title="Round Wins by Held Card")
-        rwc.add_column("Card")
-        rwc.add_column("Round Wins", justify="right")
-        for card, count in sorted(analytics["round_win_by_card"].items(), key=lambda kv: -kv[1]):
-            rwc.add_row(card, str(count))
-        console.print(rwc)
 
     if analytics["rejection_reasons"]:
         rej = Table(title="Rejection Reasons")

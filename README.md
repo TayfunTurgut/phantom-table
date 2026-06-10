@@ -4,6 +4,16 @@ An AI-powered board game playtesting tool. It takes a game's rulebook, processes
 a game configuration, then runs autonomous playtests with LLM agents — one Game Master
 (GM) agent that enforces the rules and N player agents that play the game.
 
+No game logic is hardcoded anywhere in the runtime: everything the engine needs — the
+component manifest, setup/deal plans, turn phases, per-action rules, visibility, end
+conditions, and scoring — is inferred from the rulebook during ingestion (the `GameSpec`).
+Deterministic primitives (seeded shuffling/dealing, turn rotation, state redaction,
+component-conservation checks) are generic code configured by that extraction; all
+judgment (legality, action effects, round/game end, scoring) is the GM agent's, grounded
+by the embedded rulebook. Sequential-turn games are supported today; a driver mode for
+simultaneous-action phases (all active players submit intents, the GM serializes them) is
+the next milestone.
+
 This project uses [uv](https://docs.astral.sh/uv/) as its package manager and task
 runner. Install it first if you haven't:
 [installation guide](https://docs.astral.sh/uv/getting-started/installation/).
@@ -49,7 +59,8 @@ uv run playtest smoke-test                                      # verify OpenAI 
 
 `ingest` turns a rulebook into a game config in `game_configs/<name>/`: an embedded
 (ChromaDB) copy of the rules plus a generated state schema, initial-state template, player
-action tools, GM prompt, and player prompt. Inspect the result with `show-config`, which
+action tools, the engine-facing game spec (`game_spec.json`), GM prompt, and player
+prompt. Independent extraction steps run in parallel. Inspect the result with `show-config`, which
 prints each field in full by default; pass `--truncate` to collapse tool descriptions,
 prompts, and the sample rulebook query to short previews.
 
@@ -60,12 +71,15 @@ overwrites that game's config.
 
 ## Playtesting
 
-`play` runs one autonomous session of an ingested game. A [LangGraph](https://langchain-ai.github.io/langgraph/)
-graph alternates between a Game Master (GM) agent — which deals, enforces the rules,
-resolves actions, and decides round/game endings — and the player agents, which read the
-public game state, optionally query the rulebook, and propose actions through the generated
-tools. The GM rejects illegal moves and asks the player to try again. Live progress is
-printed to the terminal and a structured summary is shown at the end.
+`play` runs one autonomous session of an ingested game. A plain turn loop alternates
+between a Game Master (GM) agent — which enforces the rules, resolves actions, and decides
+round/game endings — and the player agents, which read the public game state, optionally
+query the rulebook, and propose actions through the generated tools. The engine handles
+the deterministic mechanics: seeded dealing and redeals, turn rotation, and
+component-conservation checks on every committed state. The GM rejects illegal moves and
+the player retries within the same turn (up to `max_action_retries`; rejections are
+recorded as a playtest signal). Live progress is printed to the terminal and a structured
+summary is shown at the end.
 
 ```bash
 uv run playtest play --game love_letter --players 2 \
@@ -101,7 +115,7 @@ uv run playtest review --log-file results/game_0.json --full
 ## Observability (optional)
 
 Set `LANGSMITH_TRACING=true` and `LANGSMITH_API_KEY` in your `.env` to trace every LLM call
-and graph step to [LangSmith](https://smith.langchain.com/) under the `LANGSMITH_PROJECT`
+to [LangSmith](https://smith.langchain.com/) under the `LANGSMITH_PROJECT`
 name. Tracing is off by default and requires no LangSmith account to run playtests.
 
 ## Smoke test
@@ -118,6 +132,12 @@ All settings are read from `.env` (see `.env.example`). Beyond `OPENAI_API_KEY`,
 useful knobs are the models — `GM_MODEL` (default `gpt-4o`), `PLAYER_MODEL` (default
 `gpt-4o-mini`), and `EMBEDDING_MODEL` (default `text-embedding-3-small`) — plus
 `GAME_CONFIGS_DIR` (where ingested configs live) and `LOG_LEVEL`.
+
+Safety caps (crashing ceilings, not targets): `MAX_TURNS` (default 500) bounds the game
+loop, `MAX_TOOL_ITERATIONS` (16) and `MAX_OBSERVATION_CALLS` (6) bound each player turn,
+and `MAX_ACTION_RETRIES` (3) is the per-turn budget of GM-rejected proposals before the
+run crashes with `IllegalAction` (each rejection is logged and fed back to the player
+first — rejections are a playtest signal, not an error).
 
 ## Development
 
