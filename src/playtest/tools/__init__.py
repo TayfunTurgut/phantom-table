@@ -6,6 +6,70 @@ from playtest.tools.game_state import GetGameStateTool, SetGameStateTool
 from playtest.tools.rulebook import RulebookTool
 
 
+def _finish_resolution_schema() -> dict:
+    """Terminal GM tool: report the structured outcome of a resolution in one call.
+
+    Calling this ends the GM's tool loop, so the structured fields come back directly
+    without a second LLM summary call. It performs no state mutation itself.
+    """
+    return {
+        "type": "function",
+        "function": {
+            "name": "finish_resolution",
+            "description": (
+                "Report the final outcome of resolving the action and end your turn. "
+                "Call this exactly once, after you have validated the action and (if "
+                "legal) committed the new state with set_game_state."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "is_valid": {
+                        "type": "boolean",
+                        "description": "Was the proposed action legal per the rules?",
+                    },
+                    "error_message": {
+                        "type": ["string", "null"],
+                        "description": "If invalid, the player-facing reason; else null.",
+                    },
+                    "action_summary": {
+                        "type": "string",
+                        "description": "One-line factual summary of what happened.",
+                    },
+                    "narration": {
+                        "type": "string",
+                        "description": "Brief, flavorful description for the players.",
+                    },
+                    "round_ended": {
+                        "type": "boolean",
+                        "description": "Did the deck empty or only one player remain?",
+                    },
+                    "next_player": {
+                        "type": ["string", "null"],
+                        "description": "Player id whose turn is next, or null.",
+                    },
+                    "next_phase": {
+                        "type": "string",
+                        "enum": ["draw", "play"],
+                        "description": "Phase for the next turn.",
+                    },
+                    "private_info": {
+                        "type": ["object", "null"],
+                        "description": (
+                            "Info visible only to the acting player (e.g. a Priest reveal)."
+                        ),
+                    },
+                    "gm_reasoning": {
+                        "type": "string",
+                        "description": "Your internal reasoning, for logging.",
+                    },
+                },
+                "required": ["is_valid", "narration"],
+            },
+        },
+    }
+
+
 class ToolRegistry:
     """Assemble and route tool calls for GM and player agents."""
 
@@ -32,8 +96,11 @@ class ToolRegistry:
         return self.action_dispatch.get_tool_schemas(action_names)
 
     def get_gm_tools(self) -> list[dict]:
-        """GM schemas: query_rulebook, get_game_state, set_game_state."""
-        return self.get_shared_tool_schemas() + [self.set_state_tool.as_openai_schema()]
+        """GM schemas: query_rulebook, get_game_state, set_game_state, finish_resolution."""
+        return self.get_shared_tool_schemas() + [
+            self.set_state_tool.as_openai_schema(),
+            _finish_resolution_schema(),
+        ]
 
     def get_player_tools(self, available_actions: list[str] | None = None) -> list[dict]:
         """Player schemas: query_rulebook, get_game_state, + specified action tools."""

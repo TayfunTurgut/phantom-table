@@ -41,6 +41,8 @@ class GameConfig(BaseModel):
     gm_prompt: str
     player_prompt_template: str
     rulebook_text: str
+    setup_parameters: dict = {}
+    core_mechanics: list[str] = []
 
     def save(self) -> None:
         """Save all artifacts to config_dir as JSON/text files."""
@@ -61,12 +63,16 @@ class GameConfig(BaseModel):
             self.player_prompt_template, encoding="utf-8"
         )
         (config_path / "rulebook.txt").write_text(self.rulebook_text, encoding="utf-8")
+        (config_path / "core_mechanics.json").write_text(
+            json.dumps(self.core_mechanics, indent=2), encoding="utf-8"
+        )
         (config_path / "config.json").write_text(
             json.dumps(
                 {
                     "game_name": self.game_name,
                     "variant": self.variant,
                     "num_players": self.num_players,
+                    "setup_parameters": self.setup_parameters,
                 },
                 indent=2,
             ),
@@ -96,6 +102,13 @@ class GameConfig(BaseModel):
 
         meta = json.loads((config_path / "config.json").read_text(encoding="utf-8"))
 
+        core_mechanics_path = config_path / "core_mechanics.json"
+        core_mechanics = (
+            json.loads(core_mechanics_path.read_text(encoding="utf-8"))
+            if core_mechanics_path.exists()
+            else []
+        )
+
         return cls(
             game_name=meta["game_name"],
             variant=meta["variant"],
@@ -113,4 +126,6 @@ class GameConfig(BaseModel):
             gm_prompt=(config_path / "gm_prompt.txt").read_text(encoding="utf-8"),
             player_prompt_template=(config_path / "player_prompt.txt").read_text(encoding="utf-8"),
             rulebook_text=(config_path / "rulebook.txt").read_text(encoding="utf-8"),
+            setup_parameters=meta.get("setup_parameters", {}),
+            core_mechanics=core_mechanics,
         )

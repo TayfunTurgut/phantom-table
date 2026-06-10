@@ -105,7 +105,12 @@ def test_get_tool_schemas_subset_all_and_unknown() -> None:
 def test_gm_tools_include_set_game_state(tmp_path: Path) -> None:
     registry = _registry(tmp_path)
     names = _tool_names(registry.get_gm_tools())
-    assert names == {"query_rulebook", "get_game_state", "set_game_state"}
+    assert names == {
+        "query_rulebook",
+        "get_game_state",
+        "set_game_state",
+        "finish_resolution",
+    }
 
 
 def test_player_tools_exclude_set_game_state(tmp_path: Path) -> None:

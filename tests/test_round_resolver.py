@@ -2,7 +2,7 @@
 
 import pytest
 
-from playtest.agents.gm import resolve_round
+from playtest.rules.love_letter import resolve_round
 
 
 def _player(

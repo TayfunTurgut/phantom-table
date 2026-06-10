@@ -304,8 +304,108 @@ def generate_initial_state(rulebook_text: str, num_players: int, state_schema: d
 # --- Prompts ----------------------------------------------------------------
 
 
-def generate_gm_prompt(rulebook_text: str, state_schema: dict, tool_definitions: dict) -> str:
-    """Generate the GM system prompt; code appends rules, schema, and tool definitions."""
+def _validate_core_mechanics(data: dict) -> None:
+    mechanics = data.get("mechanics")
+    if not isinstance(mechanics, list) or not mechanics:
+        raise ValueError("'mechanics' must be a non-empty JSON array")
+    if not all(isinstance(m, str) and m.strip() for m in mechanics):
+        raise ValueError("every item in 'mechanics' must be a non-empty string")
+
+
+def generate_core_mechanics(rulebook_text: str) -> list[str]:
+    """Extract cross-cutting mechanical constraints (not per-card effects) from the rulebook."""
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You extract a game's CROSS-CUTTING mechanical constraints as JSON. These are "
+                "rules that affect multiple cards or actions, not the effect of any single card. "
+                "Respond with a single JSON object of the form {\"mechanics\": [\"...\", ...]} "
+                "containing 4-8 short, clear strings. Each string is one constraint. Focus on: "
+                "protection/immunity effects, targeting restrictions (including what happens when "
+                "no valid target exists), forced-play obligations, elimination triggers that are "
+                "not specific to one card, tie handling, and self-targeting limits. Do NOT include "
+                "individual card effects, setup rules, scoring rules, or win conditions."
+            ),
+        },
+        {"role": "user", "content": f"Rulebook:\n\n{rulebook_text}"},
+    ]
+    return _generate_json_with_repair(messages, _validate_core_mechanics)["mechanics"]
+
+
+def generate_game_overview(rulebook_text: str) -> str:
+    """Generate a brief, rules-free overview (name, theme, players, win condition)."""
+    return _chat_text(
+        _client(),
+        [
+            {
+                "role": "system",
+                "content": (
+                    "You write a 2-3 sentence overview of a tabletop game for an AI agent. State "
+                    "the game name, theme, player count, and how a player wins. Do NOT include "
+                    "rules, card effects, setup steps, or edge cases — only a high-level summary. "
+                    "Write only the overview text."
+                ),
+            },
+            {"role": "user", "content": f"Rulebook:\n\n{rulebook_text}"},
+        ],
+    ).strip()
+
+
+def _validate_setup_parameters(params: dict) -> None:
+    required = {
+        "cards_removed",
+        "cards_revealed_2p",
+        "cards_revealed_other",
+        "cards_dealt_per_player",
+    }
+    missing = required - set(params)
+    if missing:
+        raise ValueError(f"setup parameters missing fields: {sorted(missing)}")
+    bad = [key for key in required if not isinstance(params[key], int)]
+    if bad:
+        raise ValueError(f"setup parameters must be integers: {sorted(bad)}")
+
+
+def generate_setup_parameters(rulebook_text: str) -> dict:
+    """Extract the per-round setup constants (how many cards to remove/reveal/deal)."""
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You extract a game's per-round setup constants as JSON. Respond with a single "
+                "JSON object with these integer fields: cards_removed (cards set aside face-down "
+                "at the start of a round), cards_revealed_2p (cards revealed face-up in a "
+                "2-player game), cards_revealed_other (cards revealed face-up with more than 2 "
+                "players), and cards_dealt_per_player (cards dealt to each player at the start of "
+                "a round)."
+            ),
+        },
+        {"role": "user", "content": f"Rulebook:\n\n{rulebook_text}"},
+    ]
+    return _generate_json_with_repair(messages, _validate_setup_parameters)
+
+
+def _core_mechanics_section(core_mechanics: list[str]) -> str:
+    """Render the code-injected Core Mechanics block (empty string if none)."""
+    if not core_mechanics:
+        return ""
+    bullets = "\n".join(f"- {m}" for m in core_mechanics)
+    return (
+        "## Core Mechanics\n\n"
+        "These constraints always apply and affect multiple actions:\n"
+        f"{bullets}\n\n"
+    )
+
+
+def generate_gm_prompt(
+    rulebook_text: str,
+    state_schema: dict,
+    tool_definitions: dict,
+    game_overview: str,
+    core_mechanics: list[str],
+) -> str:
+    """Generate the GM system prompt; rules live in the rulebook (query_rulebook), not here."""
     instructions = _chat_text(
         _client(),
         [
@@ -330,7 +430,9 @@ def generate_gm_prompt(rulebook_text: str, state_schema: dict, tool_definitions:
                     f"- Manage turn order and determine whose turn is next.\n"
                     f"- When rejecting an illegal action, explain why and give the player another "
                     f"chance.\n\n"
-                    f"Write only the prompt text.\n\nRulebook for reference:\n\n{rulebook_text}"
+                    f"Do NOT reproduce the rules, card descriptions, or rulebook text in the "
+                    f"prompt — the GM looks rules up with the query_rulebook tool. Write only the "
+                    f"prompt text.\n\nRulebook for reference:\n\n{rulebook_text}"
                 ),
             },
         ],
@@ -338,7 +440,12 @@ def generate_gm_prompt(rulebook_text: str, state_schema: dict, tool_definitions:
 
     return (
         f"{instructions.strip()}\n\n"
-        f"## Complete Rules\n\n{rulebook_text.strip()}\n\n"
+        f"## Game Overview\n\n{game_overview.strip()}\n\n"
+        f"{_core_mechanics_section(core_mechanics)}"
+        "## Looking Up Rules\n\n"
+        "You have access to a `query_rulebook` tool. Use it to look up any game rule before "
+        "validating or resolving an action. Do not rely on memory — always verify against the "
+        "rulebook.\n\n"
         f"## Game State Schema\n\n{json.dumps(state_schema, indent=2)}\n\n"
         f"## Player Action Tools (for validating proposed actions)\n\n"
         f"{json.dumps(tool_definitions, indent=2)}\n"
@@ -346,7 +453,9 @@ def generate_gm_prompt(rulebook_text: str, state_schema: dict, tool_definitions:
 
 
 def generate_player_prompt(
-    rulebook_text: str, forbidden_action_names: list[str] | None = None
+    game_overview: str,
+    core_mechanics: list[str],
+    forbidden_action_names: list[str] | None = None,
 ) -> str:
     """Generate the player system prompt template (keeps a literal {player_id} placeholder)."""
     forbidden = forbidden_action_names or []
@@ -354,6 +463,8 @@ def generate_player_prompt(
     def validate(text: str) -> None:
         if "{player_id}" not in text:
             raise ValueError("the prompt must contain the literal placeholder {player_id}")
+        if "query_rulebook" not in text:
+            raise ValueError("the prompt must instruct the player to use the query_rulebook tool")
         leaked = [name for name in forbidden if name in text]
         if leaked:
             raise ValueError(
@@ -372,7 +483,10 @@ def generate_player_prompt(
                 "Write a system prompt template for a player agent in this game. Requirements:\n"
                 "- Start by stating they are playing the game and their player ID is the literal "
                 "placeholder {player_id} (keep it exactly as {player_id}).\n"
-                "- Give a condensed rules summary: what each card does and how turns work.\n"
+                "- Include the brief game overview below (verbatim or lightly paraphrased).\n"
+                "- Do NOT include a card-effect reference, rules, or setup details. Instead, "
+                "instruct them to use the query_rulebook tool to look up what their cards do "
+                "before deciding which to play.\n"
                 "- They can ONLY see their own hand; they must deduce hidden information from "
                 "public discards and revealed cards.\n"
                 "- On their turn, first call get_game_state, then choose an action.\n"
@@ -382,8 +496,12 @@ def generate_player_prompt(
                 "- Use the reasoning field to think privately; use public_statement to speak.\n"
                 "- If an action is rejected by the GM, read the error and try a different legal "
                 "action.\n\nWrite only the prompt text.\n\n"
-                f"Rulebook for reference:\n\n{rulebook_text}"
+                f"Game overview:\n\n{game_overview}"
             ),
         },
     ]
-    return _generate_text_with_repair(messages, validate)
+    prompt = _generate_text_with_repair(messages, validate)
+    section = _core_mechanics_section(core_mechanics)
+    if section:
+        prompt = f"{prompt.rstrip()}\n\n{section.rstrip()}"
+    return prompt

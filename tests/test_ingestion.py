@@ -181,6 +181,7 @@ def test_game_config_save_load_roundtrip(tmp_path) -> None:
         gm_prompt="GM prompt text",
         player_prompt_template="You are {player_id}.",
         rulebook_text=SAMPLE_RULEBOOK,
+        core_mechanics=["A protected player cannot be targeted."],
     )
     config.save()
     loaded = GameConfig.load(str(config_dir))
@@ -190,6 +191,7 @@ def test_game_config_save_load_roundtrip(tmp_path) -> None:
     assert loaded.initial_state_template == EXAMPLE_INITIAL_STATE
     assert loaded.tool_definitions == config.tool_definitions
     assert "{player_id}" in loaded.player_prompt_template
+    assert loaded.core_mechanics == ["A protected player cannot be targeted."]
 
 
 def test_game_config_load_rejects_incomplete_config(tmp_path) -> None:
@@ -234,7 +236,25 @@ def test_ingest_rulebook_end_to_end(openai_client, tmp_path, monkeypatch) -> Non
     assert len(config.initial_state_template["revealed_cards"]) == 3
     assert config.initial_state_template["deck_count"] == 10
     assert "{player_id}" in config.player_prompt_template
-    assert "Guard" in config.gm_prompt
+
+    # Rules live in the rulebook (query_rulebook), not the prompts.
+    assert "query_rulebook" in config.gm_prompt
+    assert "## Game State Schema" in config.gm_prompt
+    assert "## Complete Rules" not in config.gm_prompt
+    assert "query_rulebook" in config.player_prompt_template
+    # Leak guard: no formatted card definitions copied back into the prompt.
+    assert "Guard (1)" not in config.gm_prompt
+    assert "Priest (2)" not in config.gm_prompt
+    assert set(config.setup_parameters) >= {
+        "cards_removed",
+        "cards_revealed_2p",
+        "cards_revealed_other",
+        "cards_dealt_per_player",
+    }
+    # Cross-cutting mechanics are code-injected into both prompts.
+    assert len(config.core_mechanics) > 0
+    assert "## Core Mechanics" in config.gm_prompt
+    assert "## Core Mechanics" in config.player_prompt_template
 
     hits = query_collection(
         "what does the guard do",

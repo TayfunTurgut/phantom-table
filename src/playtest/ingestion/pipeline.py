@@ -6,9 +6,12 @@ from rich.console import Console
 
 from playtest.config import get_settings
 from playtest.ingestion.analyzer import (
+    generate_core_mechanics,
+    generate_game_overview,
     generate_gm_prompt,
     generate_initial_state,
     generate_player_prompt,
+    generate_setup_parameters,
     generate_state_schema,
     generate_tool_definitions,
 )
@@ -61,11 +64,23 @@ def ingest_rulebook(rulebook_path: str, game_name: str, num_players: int = 2) ->
     tool_definitions = generate_tool_definitions(rulebook_text)
     _console.print(f"  [green]generated[/green] tools - actions: {', '.join(tool_definitions)}")
 
-    gm_prompt = generate_gm_prompt(rulebook_text, state_schema, tool_definitions)
+    game_overview = generate_game_overview(rulebook_text)
+    _console.print("  [green]generated[/green] game overview")
+
+    setup_parameters = generate_setup_parameters(rulebook_text)
+    _console.print("  [green]generated[/green] setup parameters")
+
+    core_mechanics = generate_core_mechanics(rulebook_text)
+    _console.print(f"  [green]generated[/green] core mechanics ({len(core_mechanics)} constraints)")
+
+    gm_prompt = generate_gm_prompt(
+        rulebook_text, state_schema, tool_definitions, game_overview, core_mechanics
+    )
     _console.print("  [green]generated[/green] GM prompt")
 
     player_prompt = generate_player_prompt(
-        rulebook_text,
+        game_overview,
+        core_mechanics,
         forbidden_action_names=[n for n in tool_definitions if n != "draw_card"],
     )
     _console.print("  [green]generated[/green] player prompt")
@@ -81,6 +96,8 @@ def ingest_rulebook(rulebook_path: str, game_name: str, num_players: int = 2) ->
         gm_prompt=gm_prompt,
         player_prompt_template=player_prompt,
         rulebook_text=rulebook_text,
+        setup_parameters=setup_parameters,
+        core_mechanics=core_mechanics,
     )
     config.save()
     _console.print(f"[bold green]Done.[/bold green] Config saved to {config_dir}")

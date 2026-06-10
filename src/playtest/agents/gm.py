@@ -16,87 +16,14 @@ from pydantic import BaseModel
 from rich.console import Console
 
 from playtest.config import get_settings
+from playtest.errors import IllegalAction, PlaytestError, StateInvariantViolation
 from playtest.ingestion.schemas import GameConfig
+from playtest.rules import get_rules
 from playtest.tools import ToolRegistry
 
 _console = Console()
 
-# Love Letter classic 16-card deck.
-DECK_COMPOSITION = (
-    ["Guard"] * 5
-    + ["Priest"] * 2
-    + ["Baron"] * 2
-    + ["Handmaid"] * 2
-    + ["Prince"] * 2
-    + ["King"] * 1
-    + ["Countess"] * 1
-    + ["Princess"] * 1
-)
-TOKENS_TO_WIN = {2: 7, 3: 5, 4: 4, 5: 3, 6: 3}
-
-# Classic variant supports 2-4 players; 5-6 need the 21-card deck (Spy/Chancellor).
-SUPPORTED_PLAYER_COUNTS = (2, 3, 4)
-
-CARD_RANK = {
-    "Guard": 1,
-    "Priest": 2,
-    "Baron": 3,
-    "Handmaid": 4,
-    "Prince": 5,
-    "King": 6,
-    "Countess": 7,
-    "Princess": 8,
-}
-
-
-def _card_rank(card: str) -> int:
-    """Rank of a card, raising ValueError (not KeyError) on an unknown name."""
-    try:
-        return CARD_RANK[card]
-    except KeyError:
-        raise ValueError(f"unknown card {card!r}") from None
-
-
-def resolve_round(players: dict) -> dict:
-    """Deterministically score a completed round.
-
-    Surviving (non-eliminated) players each hold exactly one card. The highest
-    ``CARD_RANK`` wins; ties break on the highest sum of discard-pile ranks; any
-    remaining tie is shared (every still-tied player wins). Each winner gains one token.
-
-    Returns ``{"winners": [pid, ...], "winning_card": str, "scores": {pid: new_total}}``.
-    """
-    survivors = {pid: p for pid, p in players.items() if not p.get("is_eliminated", False)}
-    if not survivors:
-        raise ValueError("cannot resolve a round with no surviving players")
-    for pid, p in survivors.items():
-        hand = p.get("hand", [])
-        if len(hand) != 1:
-            raise ValueError(
-                f"survivor {pid} must hold exactly one card at round end, got {hand!r}"
-            )
-
-    def rank(pid: str) -> int:
-        return _card_rank(survivors[pid]["hand"][0])
-
-    def discard_sum(pid: str) -> int:
-        return sum(_card_rank(c) for c in survivors[pid].get("discards", []))
-
-    best_rank = max(rank(pid) for pid in survivors)
-    top = [pid for pid in survivors if rank(pid) == best_rank]
-    if len(top) > 1:
-        best_discard = max(discard_sum(pid) for pid in top)
-        top = [pid for pid in top if discard_sum(pid) == best_discard]
-
-    winners = sorted(top)
-    winning_card = survivors[winners[0]]["hand"][0]
-    scores = {pid: p.get("tokens", 0) for pid, p in players.items()}
-    for pid in winners:
-        scores[pid] += 1
-    return {"winners": winners, "winning_card": winning_card, "scores": scores}
-
-
-_MAX_TOOL_ITERATIONS = 8
+_MAX_TOOL_ITERATIONS = 12
 
 _STATE_WRITE_INSTRUCTION = (
     "When you commit a state change, FIRST call get_game_state to read the complete "
@@ -105,21 +32,6 @@ _STATE_WRITE_INSTRUCTION = (
     "every key (including the 'deck' array) and the exact types you received."
 )
 
-_RESOLUTION_SCHEMA_INSTRUCTION = (
-    "Summarize your resolution as a single JSON object with EXACTLY these keys:\n"
-    '  "is_valid" (bool): was the proposed action legal per the rules?\n'
-    '  "error_message" (string or null): if invalid, the player-facing reason.\n'
-    '  "action_summary" (string): a one-line factual summary of what happened.\n'
-    '  "narration" (string): a brief, flavorful description for the players.\n'
-    '  "round_ended" (bool): did the deck empty or only one player remain?\n'
-    '  "game_ended" (bool): did a player reach the token threshold?\n'
-    '  "winner" (string or null): player id of the game winner, if game_ended.\n'
-    '  "next_player" (string or null): the player id whose turn is next.\n'
-    '  "next_phase" (string): "draw" or "play".\n'
-    '  "private_info" (object or null): info visible only to the acting player '
-    "(e.g. a Priest reveal), or null.\n"
-    '  "gm_reasoning" (string): your internal reasoning, for logging.'
-)
 
 
 class GMResolution(BaseModel):
@@ -151,6 +63,7 @@ class GMAgent:
         openai_client: OpenAI,
     ) -> None:
         self.game_config = game_config
+        self.rules = get_rules(game_config)
         self.system_prompt = game_config.gm_prompt
         self.tools = tool_registry.get_gm_tools()
         self.tool_registry = tool_registry
@@ -166,79 +79,38 @@ class GMAgent:
 
     # -- Initialization ------------------------------------------------------
 
-    def _build_initial_state(self, num_players: int, seed: int | None = None) -> tuple[dict, str]:
-        """Build a fresh, fully dealt round programmatically (seeded for repeatability)."""
-        rng = random.Random(seed)
-        deck = list(DECK_COMPOSITION)
-        rng.shuffle(deck)
-
-        removed_card = deck.pop()
-
-        revealed_cards: list[str] = []
-        if num_players == 2:
-            for _ in range(3):
-                revealed_cards.append(deck.pop())
-
-        player_hands: dict[str, list[str]] = {}
-        for i in range(1, num_players + 1):
-            player_hands[f"player_{i}"] = [deck.pop()]
-
-        state: dict = {
-            "game_name": self.game_config.game_name,
-            "variant": self.game_config.variant,
-            "num_players": num_players,
-            "tokens_to_win": TOKENS_TO_WIN[num_players],
-            "round_number": 1,
-            "current_turn": "player_1",
-            "turn_phase": "draw",
-            "deck": deck,
-            "deck_count": len(deck),
-            "removed_card": removed_card,
-            "revealed_cards": revealed_cards,
-            "players": {},
-        }
-        for i in range(1, num_players + 1):
-            pid = f"player_{i}"
-            state["players"][pid] = {
-                "hand": player_hands[pid],
-                "hand_count": len(player_hands[pid]),
-                "discards": [],
-                "tokens": 0,
-                "is_eliminated": False,
-                "is_protected": False,
-            }
-
-        return state, removed_card
+    def _build_initial_state(
+        self, num_players: int, seed: int | None = None
+    ) -> tuple[dict, str | None]:
+        """Build a fresh, fully dealt round via the game's rules module."""
+        return self.rules.setup(self.game_config, num_players, seed)
 
     def initialize_game(self, num_players: int | None = None, seed: int | None = None) -> dict:
         """Set up and establish a new game. Returns the GM-view state plus narration."""
         if num_players is None:
             num_players = self.game_config.num_players
-        if num_players not in SUPPORTED_PLAYER_COUNTS:
+        supported = self.rules.supported_player_counts
+        if supported and num_players not in supported:
             raise ValueError(
-                f"Classic Love Letter supports {SUPPORTED_PLAYER_COUNTS} players; "
-                f"{num_players} requires the 21-card deck (Spy/Chancellor), which is out of scope."
+                f"{self.game_config.game_name} supports {supported} players; "
+                f"{num_players} is out of scope."
             )
         self._seed = seed
         self._rng = random.Random(seed)
 
-        # Append a count-aware addendum so the GM knows the token goal and that round
-        # scoring is engine-computed (it only narrates/deals). Rebuilt from the config
-        # prompt each call so repeat initializations never stack addenda.
-        self.system_prompt = self.game_config.gm_prompt + (
-            f"\n\n## This Game\nThis game has {num_players} players; the token threshold to "
-            f"win is {TOKENS_TO_WIN[num_players]}. Round scoring (who won the round and token "
-            "awards) is computed by the game engine and given to you — narrate the result and "
-            "deal the next round, but never recompute the winner yourself."
+        # Append any game-specific addendum (e.g. token goal, engine-scored rounds). Rebuilt
+        # from the config prompt each call so repeat initializations never stack addenda.
+        self.system_prompt = self.game_config.gm_prompt + self.rules.system_prompt_addendum(
+            num_players
         )
 
         state, removed_card = self._build_initial_state(num_players, seed)
 
         gm_view = self.state_manager.initialize(
             initial_state=state,
-            deck_cards=state["deck"],
-            removed_card=removed_card,
-            revealed_cards=state["revealed_cards"],
+            deck_cards=state.get("deck", []),
+            removed_card=removed_card or "",  # games without a removed card pass ""
+            revealed_cards=state.get("revealed_cards", []),
             player_hands={pid: p["hand"] for pid, p in state["players"].items()},
         )
 
@@ -264,14 +136,19 @@ class GMAgent:
         return completion.choices[0].message.content or ""
 
     def _call_llm(self, messages: list[dict], tools: list[dict] | None = None) -> dict:
-        """Run the tool-use loop until the LLM emits a final text response.
+        """Run the GM tool-use loop until it calls ``finish_resolution``.
 
-        Tool calls are executed via the registry (always as the GM). A ValueError from
-        a tool (notably the manager rejecting a state write) is fed back as the tool
-        result so the LLM can self-correct and retry within the loop.
+        Tool calls are executed via the registry (always as the GM). ``finish_resolution``
+        is intercepted here, not routed to the registry: its arguments ARE the structured
+        outcome, and calling it ends the loop — so there is no second summary LLM call.
+
+        A ValueError from ``set_game_state`` (the manager rejecting a malformed write) is
+        fed back as the tool result so the GM can redo the write within this same loop.
+        That is the GM completing a valid write, not reconciling committed game state, so
+        it is deliberately NOT a crash. Exhausting the iteration cap without finishing is.
         """
         set_state_called = False
-        set_state_error: str | None = None
+        resolution: dict | None = None
 
         for _ in range(_MAX_TOOL_ITERATIONS):
             kwargs: dict[str, Any] = {
@@ -287,12 +164,15 @@ class GMAgent:
 
             tool_calls = message.tool_calls or []
             if not tool_calls:
-                return {
-                    "content": message.content or "",
-                    "set_state_called": set_state_called,
-                    "set_state_error": set_state_error,
-                    "messages": messages,
-                }
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            "Call finish_resolution to report the outcome of this resolution."
+                        ),
+                    }
+                )
+                continue
 
             for tool_call in tool_calls:
                 name = tool_call.function.name
@@ -305,15 +185,20 @@ class GMAgent:
                     )
                     continue
 
+                if name == "finish_resolution":
+                    resolution = args
+                    messages.append(
+                        {"role": "tool", "tool_call_id": tool_call.id, "content": "ok"}
+                    )
+                    continue
+
                 try:
                     result = self.tool_registry.execute_tool(name, args, "gm")
                     if name == "set_game_state":
                         set_state_called = True
-                        set_state_error = None
                     content = result if isinstance(result, str) else json.dumps(result)
                 except ValueError as exc:
                     if name == "set_game_state":
-                        set_state_error = str(exc)
                         content = (
                             f"State update rejected: {exc}. Call get_game_state, copy the "
                             "COMPLETE state, and modify only the affected fields; do not "
@@ -323,32 +208,24 @@ class GMAgent:
                         content = f"Tool error: {exc}"
                 messages.append({"role": "tool", "tool_call_id": tool_call.id, "content": content})
 
-        return {
-            "content": "",
-            "set_state_called": set_state_called,
-            "set_state_error": set_state_error,
-            "messages": messages,
-        }
+            if resolution is not None:
+                return {
+                    "resolution": resolution,
+                    "set_state_called": set_state_called,
+                    "messages": messages,
+                }
 
-    def _structured_summary(self, messages: list[dict]) -> dict:
-        """Follow-up JSON call summarizing the resolution into GMResolution fields."""
-        summary_messages = messages + [{"role": "user", "content": _RESOLUTION_SCHEMA_INSTRUCTION}]
-        kwargs: dict[str, Any] = {
-            "model": self.model,
-            "messages": summary_messages,
-            "response_format": {"type": "json_object"},
-        }
-        completion = self.client.chat.completions.create(**kwargs)
-        content = completion.choices[0].message.content or "{}"
-        try:
-            return json.loads(content)
-        except json.JSONDecodeError:
-            return {}
-
-    # -- Resolution ----------------------------------------------------------
+        raise PlaytestError(
+            f"GM did not call finish_resolution within {_MAX_TOOL_ITERATIONS} iterations"
+        )
 
     def validate_and_resolve(self, proposed_action: dict, player_id: str) -> GMResolution:
-        """Validate a proposed player action and, if legal, resolve and commit it."""
+        """Validate a proposed player action and, if legal, resolve and commit it.
+
+        Crashes (raises) rather than reconciling: an illegal action raises ``IllegalAction``,
+        a committed state that violates integrity invariants raises ``StateInvariantViolation``,
+        and an is_valid/commit inconsistency raises ``PlaytestError``. No retries.
+        """
         action_type = proposed_action.get("action_type", "")
         parameters = proposed_action.get("parameters", {})
         public_statement = proposed_action.get("public_statement", "")
@@ -364,8 +241,9 @@ class GMAgent:
             "verify any rule).\n"
             "3. If valid, resolve it: determine the outcome, build the complete updated game "
             "state, and call set_game_state.\n"
-            "4. If invalid, explain why and do NOT call set_game_state.\n"
-            "After resolving, state who goes next and whether the round/game has ended.\n\n"
+            "4. If invalid, do NOT call set_game_state.\n"
+            "5. Finally, call finish_resolution to report the outcome (is_valid, narration, "
+            "who goes next, whether the round ended, any private info).\n\n"
             f"{_STATE_WRITE_INSTRUCTION}"
         )
 
@@ -374,14 +252,35 @@ class GMAgent:
             {"role": "user", "content": user_message},
         ]
         loop = self._call_llm(messages, tools=self.tools)
-        summary = self._structured_summary(loop["messages"])
+        args = loop["resolution"]
+        set_state_called = loop["set_state_called"]
+        is_valid = bool(args.get("is_valid", False))
+        last_action = {
+            "player_id": player_id,
+            "action_type": action_type,
+            "parameters": parameters,
+        }
 
-        return self._build_resolution(
-            summary,
-            player_id=player_id,
-            set_state_called=loop["set_state_called"],
-            set_state_error=loop["set_state_error"],
-        )
+        if not is_valid:
+            if set_state_called:
+                raise PlaytestError(
+                    f"GM committed state for an action it reported invalid "
+                    f"({player_id} {action_type})."
+                )
+            raise IllegalAction(
+                player_id, proposed_action, args.get("error_message") or "no reason given"
+            )
+        if not set_state_called:
+            raise PlaytestError(
+                f"GM reported {player_id}'s {action_type} valid but never committed a new state."
+            )
+
+        committed = self.state_manager.get_state("gm")
+        violations = self.rules.check_invariants(committed, last_action)
+        if violations:
+            raise StateInvariantViolation(violations, last_action, committed)
+
+        return self._build_resolution(args, committed, player_id)
 
     def handle_round_end(self) -> GMResolution:
         """Score the completed round deterministically; the LLM only narrates and deals.
@@ -395,7 +294,8 @@ class GMAgent:
         tokens_to_win = state["tokens_to_win"]
         num_players = state["num_players"]
 
-        result = resolve_round(players)
+        result = self.rules.score_round(players)
+        assert result is not None  # a round-based game's rules module scores rounds
         winners = result["winners"]
         winning_card = result["winning_card"]
         scores = result["scores"]
@@ -404,9 +304,9 @@ class GMAgent:
         committed = self.state_manager.set_state(state)
 
         winners_label = ",".join(winners)
-        crossed = [pid for pid in winners if scores[pid] >= tokens_to_win]
+        game_winner = self.rules.is_game_won(committed)
 
-        if crossed:
+        if game_winner:
             # Game over: tokens are committed, no new deal. Tied threshold-crossers share.
             narration = self._narrate(
                 f"The final round has ended. {winners_label} won the round holding the "
@@ -423,16 +323,20 @@ class GMAgent:
                 new_state=committed,
                 round_ended=True,
                 game_ended=True,
-                winner=",".join(crossed),
+                winner=game_winner,
                 winners=winners,
                 winning_card=winning_card,
             )
 
         # Game continues: the LLM deals the next round from the already-shuffled deck,
         # preserving the engine-decided tokens. It must NOT recompute scoring.
-        next_deck = list(DECK_COMPOSITION)
-        self._rng.shuffle(next_deck)
-        reveal_clause = "reveal 3 cards face-up" if num_players == 2 else "reveal no cards"
+        next_deck = self.rules.new_round_deck(self._rng)
+        params = self.game_config.setup_parameters
+        cards_removed = params["cards_removed"]
+        cards_revealed = (
+            params["cards_revealed_2p"] if num_players == 2 else params["cards_revealed_other"]
+        )
+        cards_dealt = params["cards_dealt_per_player"]
         token_lines = ", ".join(f"{pid}={scores[pid]}" for pid in sorted(scores))
 
         user_message = (
@@ -445,10 +349,11 @@ class GMAgent:
             f"{json.dumps(next_deck)}\n"
             "All players return for the new round: reset every player's hand and discards to "
             "empty and set is_eliminated and is_protected to false for ALL players. Then set "
-            f"'deck' to this exact list, remove one card, {reveal_clause}, and deal one card "
-            "to EVERY player, taking cards from the deck in order. Increment round_number, the "
-            "round winner takes the first turn, set turn_phase to 'draw', and preserve every "
-            "player's token count exactly as listed above.\n\n"
+            f"'deck' to this exact list, remove {cards_removed} card(s), reveal {cards_revealed} "
+            f"card(s) face-up, and deal {cards_dealt} card(s) to EVERY player, taking cards from "
+            "the deck in order. Increment round_number, the round winner takes the first turn, "
+            "set turn_phase to 'draw', and preserve every player's token count exactly as listed "
+            "above.\n\n"
             f"{_STATE_WRITE_INSTRUCTION}"
         )
 
@@ -457,14 +362,14 @@ class GMAgent:
             {"role": "user", "content": user_message},
         ]
         loop = self._call_llm(messages, tools=self.tools)
-        summary = self._structured_summary(loop["messages"])
+        if not loop["set_state_called"]:
+            raise PlaytestError("GM did not deal the next round (no set_game_state call).")
+        committed = self.state_manager.get_state("gm")
+        violations = self.rules.check_invariants(committed, None)
+        if violations:
+            raise StateInvariantViolation(violations, None, committed)
 
-        resolution = self._build_resolution(
-            summary,
-            player_id=None,
-            set_state_called=loop["set_state_called"],
-            set_state_error=loop["set_state_error"],
-        )
+        resolution = self._build_resolution(loop["resolution"] or {}, committed, player_id=None)
         resolution.round_ended = True
         resolution.game_ended = False
         resolution.winner = None
@@ -494,45 +399,32 @@ class GMAgent:
 
     def _build_resolution(
         self,
-        summary: dict,
+        args: dict,
+        new_state: dict,
         player_id: str | None,
-        set_state_called: bool,
-        set_state_error: str | None,
     ) -> GMResolution:
-        """Assemble a GMResolution, distinguishing rule rejection from GM write failure."""
-        if set_state_called:
-            is_valid = True
-            new_state: dict | None = self.state_manager.get_state("gm")
-        elif set_state_error is not None:
-            # The GM judged the action legal but its state write was rejected — a GM bug,
-            # not an illegal action. Report valid, surface the failure, keep prior state.
-            _console.print(f"[yellow]Warning:[/yellow] GM state write failed: {set_state_error}")
-            is_valid = True
-            new_state = None
-        else:
-            is_valid = bool(summary.get("is_valid", False))
-            new_state = None
+        """Map a finish_resolution payload + committed state into a GMResolution.
 
-        narration = summary.get("narration")
+        Only reached for a valid, committed resolution (validate_and_resolve has already
+        crashed on any invalid/inconsistent case). ``next_player`` is advisory — the driver
+        computes turn order from committed state — but we still sanitize it for the logs.
+        """
+        narration = args.get("narration")
         resolution = GMResolution(
-            is_valid=is_valid,
-            error_message=summary.get("error_message") if not is_valid else None,
-            action_summary=summary.get("action_summary"),
+            is_valid=True,
+            error_message=None,
+            action_summary=args.get("action_summary"),
             narration=narration,
             new_state=new_state,
-            round_ended=bool(summary.get("round_ended", False)),
-            # Per-action resolutions never end the game; only handle_round_end (which runs
-            # the deterministic resolver) may. Ignore any game_ended the LLM hallucinates.
+            round_ended=bool(args.get("round_ended", False)),
+            # Per-action resolutions never end the game; only handle_round_end does.
             game_ended=False,
-            winner=summary.get("winner"),
-            next_player=summary.get("next_player"),
-            next_phase=summary.get("next_phase") or "draw",
-            private_info=summary.get("private_info"),
-            gm_reasoning=summary.get("gm_reasoning")
-            if set_state_error is None
-            else f"{summary.get('gm_reasoning', '')} [state write failed: {set_state_error}]",
+            winner=args.get("winner"),
+            next_player=args.get("next_player"),
+            next_phase=args.get("next_phase") or "draw",
+            private_info=args.get("private_info"),
+            gm_reasoning=args.get("gm_reasoning"),
         )
-
         resolution.next_player = self._validate_next_player(resolution.next_player, player_id)
         if narration:
             self.conversation_history.append({"role": "gm", "content": narration})

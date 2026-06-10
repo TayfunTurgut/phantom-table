@@ -21,6 +21,12 @@ class Settings(BaseSettings):
     langsmith_api_key: str | None = None
     langsmith_project: str = "phantom-table"
 
+    # Safety caps for the turn loop and agent tool loops (a crashing ceiling, not a
+    # target). max_turns replaces the old LangGraph recursion_limit.
+    max_turns: int = 500
+    max_tool_iterations: int = 16
+    max_observation_calls: int = 6
+
 
 @lru_cache
 def get_settings() -> Settings:
@@ -30,7 +36,7 @@ def get_settings() -> Settings:
 def configure_tracing() -> None:
     """
     Propagate LangSmith settings to the environment variables that
-    LangGraph and the langsmith SDK read automatically.
+    the langsmith SDK reads automatically.
     Call once at startup (cli.py entrypoint).
     """
     settings = get_settings()

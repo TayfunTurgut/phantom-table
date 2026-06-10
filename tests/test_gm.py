@@ -1,12 +1,15 @@
 import collections
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from playtest.agents.gm import DECK_COMPOSITION, TOKENS_TO_WIN, GMAgent
+from playtest.agents.gm import GMAgent
 from playtest.config import get_settings
+from playtest.errors import IllegalAction, PlaytestError, StateInvariantViolation
 from playtest.ingestion.schemas import GameConfig
+from playtest.rules.love_letter import DECK_COMPOSITION, TOKENS_TO_WIN
 from playtest.state.manager import GameStateManager
 from playtest.tools import ToolRegistry
 
@@ -43,6 +46,64 @@ class _FakeCompletions:
 class _FakeClient:
     def __init__(self) -> None:
         self.chat = SimpleNamespace(completions=_FakeCompletions())
+
+
+# --- Scriptable fake client (drives the GM tool loop offline) ----------------
+
+
+class _ToolCall:
+    def __init__(self, name: str, args: dict, call_id: str = "call_1") -> None:
+        self.id = call_id
+        self.function = SimpleNamespace(name=name, arguments=json.dumps(args))
+
+
+class _ScriptedMessage:
+    def __init__(self, content: str | None = None, tool_calls: list | None = None) -> None:
+        self.content = content
+        self.tool_calls = tool_calls
+
+    def model_dump(self, **_: object) -> dict:
+        d: dict = {"role": "assistant"}
+        if self.content is not None:
+            d["content"] = self.content
+        if self.tool_calls is not None:
+            d["tool_calls"] = [
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                }
+                for tc in self.tool_calls
+            ]
+        return d
+
+
+class _ScriptedCompletions:
+    def __init__(self, script: list) -> None:
+        self.script = list(script)
+
+    def create(self, **_: object) -> object:
+        message = self.script.pop(0)
+        return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+
+
+class _ScriptedClient:
+    """Replays a fixed sequence of assistant messages so the GM loop runs offline."""
+
+    def __init__(self, script: list) -> None:
+        self.chat = SimpleNamespace(completions=_ScriptedCompletions(script))
+
+
+def _commit_and_finish(new_state: dict, **finish_args) -> list:
+    """A single assistant message that commits a state then reports the resolution."""
+    return [
+        _ScriptedMessage(
+            tool_calls=[
+                _ToolCall("set_game_state", {"reasoning": "", "new_state": new_state}, "c1"),
+                _ToolCall("finish_resolution", finish_args, "c2"),
+            ]
+        )
+    ]
 
 
 # --- Offline tests (deterministic helpers) ----------------------------------
@@ -150,12 +211,134 @@ def test_handle_round_end_resolver_continues(settings) -> None:
     agent.initialize_game(num_players=2, seed=5)
     _force_round_end_state(agent, p1_tokens=0)
 
+    # Engine awards player_1 a token; the (scripted) GM then deals a valid next round.
+    dealt, _ = agent._build_initial_state(num_players=2, seed=5)
+    dealt["round_number"] = 2
+    dealt["current_turn"] = "player_1"
+    dealt["players"]["player_1"]["tokens"] = 1
+    dealt["players"]["player_2"]["tokens"] = 0
+    agent.client = _ScriptedClient(
+        _commit_and_finish(dealt, is_valid=True, narration="The next round is dealt.")
+    )
+
     res = agent.handle_round_end()
     assert res.round_ended is True
     assert res.game_ended is False
     assert res.winners == ["player_1"]
-    # Token awarded deterministically even though the (fake) LLM did not redeal.
     assert agent.state_manager.get_state("gm")["players"]["player_1"]["tokens"] == 1
+    assert agent.state_manager.get_state("gm")["round_number"] == 2
+
+
+# --- Offline pure-crash / resolution tests (scripted client) ----------------
+
+
+def _after_draw_state(agent: GMAgent) -> dict:
+    """player_1 draws the top deck card: hand grows to 2, phase flips to play."""
+    state = agent.state_manager.get_state("gm")
+    drawn = state["deck"][0]
+    state["deck"] = state["deck"][1:]
+    state["deck_count"] = len(state["deck"])
+    state["players"]["player_1"]["hand"] = state["players"]["player_1"]["hand"] + [drawn]
+    state["players"]["player_1"]["hand_count"] = 2
+    state["turn_phase"] = "play"
+    return state
+
+
+def test_valid_draw_resolution_offline(settings) -> None:
+    agent = _load_agent(_FakeClient())
+    agent.initialize_game(num_players=2, seed=5)
+    after = _after_draw_state(agent)
+    agent.client = _ScriptedClient(
+        _commit_and_finish(after, is_valid=True, narration="Drew a card.", next_phase="play")
+    )
+
+    resolution = agent.validate_and_resolve(
+        {"action_type": "draw_card", "parameters": {}, "reasoning": "", "public_statement": ""},
+        "player_1",
+    )
+    assert resolution.is_valid is True
+    assert resolution.new_state is not None
+    assert resolution.new_state["players"]["player_1"]["hand_count"] == 2
+
+
+def test_illegal_action_raises(settings) -> None:
+    agent = _load_agent(_FakeClient())
+    agent.initialize_game(num_players=2, seed=5)
+    agent.client = _ScriptedClient(
+        [
+            _ScriptedMessage(
+                tool_calls=[
+                    _ToolCall(
+                        "finish_resolution",
+                        {
+                            "is_valid": False,
+                            "error_message": "It is not player_2's turn.",
+                            "narration": "Rejected.",
+                        },
+                    )
+                ]
+            )
+        ]
+    )
+    with pytest.raises(IllegalAction):
+        agent.validate_and_resolve(
+            {"action_type": "draw_card", "parameters": {}, "reasoning": "", "public_statement": ""},
+            "player_2",
+        )
+
+
+def test_valid_without_commit_raises(settings) -> None:
+    agent = _load_agent(_FakeClient())
+    agent.initialize_game(num_players=2, seed=5)
+    agent.client = _ScriptedClient(
+        [
+            _ScriptedMessage(
+                tool_calls=[
+                    _ToolCall(
+                        "finish_resolution",
+                        {"is_valid": True, "narration": "Did a thing (but never committed)."},
+                    )
+                ]
+            )
+        ]
+    )
+    with pytest.raises(PlaytestError):
+        agent.validate_and_resolve(
+            {"action_type": "draw_card", "parameters": {}, "reasoning": "", "public_statement": ""},
+            "player_1",
+        )
+
+
+def test_committed_invariant_violation_raises(settings) -> None:
+    agent = _load_agent(_FakeClient())
+    agent.initialize_game(num_players=2, seed=5)
+
+    # Contrive the motivating bug: the actor "plays" a card but ends holding 2 cards.
+    state = agent.state_manager.get_state("gm")
+    deck = list(state["deck"])
+    extra = deck.pop(0)
+    played = deck.pop(0)
+    state["deck"] = deck
+    state["deck_count"] = len(deck)
+    p1 = state["players"]["player_1"]
+    p1["hand"] = list(p1["hand"]) + [extra]  # still 2 cards after the "play"
+    p1["hand_count"] = 2
+    p1["discards"] = [played]
+    state["turn_phase"] = "play"
+    agent.client = _ScriptedClient(
+        _commit_and_finish(state, is_valid=True, narration="Played a card.")
+    )
+
+    with pytest.raises(StateInvariantViolation):
+        agent.validate_and_resolve(
+            {
+                "action_type": f"play_{played.lower()}",
+                "parameters": {},
+                "reasoning": "",
+                "public_statement": "",
+            },
+            "player_1",
+        )
 
 
 # --- Integration tests (real LLM, committed config) -------------------------
@@ -203,12 +386,16 @@ def test_invalid_wrong_turn(openai_client) -> None:
     agent = _load_agent(openai_client)
     agent.initialize_game(seed=1)
 
-    resolution = agent.validate_and_resolve(
-        {"action_type": "draw_card", "parameters": {}, "reasoning": "", "public_statement": ""},
-        "player_2",
-    )
-    assert resolution.is_valid is False
-    assert resolution.error_message
+    with pytest.raises(IllegalAction):
+        agent.validate_and_resolve(
+            {
+                "action_type": "draw_card",
+                "parameters": {},
+                "reasoning": "",
+                "public_statement": "",
+            },
+            "player_2",
+        )
 
 
 @pytest.mark.integration
@@ -239,17 +426,16 @@ def test_countess_forced_rejected(openai_client) -> None:
     agent.initialize_game(seed=1)
     _set_play_state(agent, {"player_1": ["Countess", "King"], "player_2": ["Guard"]})
 
-    resolution = agent.validate_and_resolve(
-        {
-            "action_type": "play_king",
-            "parameters": {"target_player": "player_2"},
-            "reasoning": "",
-            "public_statement": "I play the King.",
-        },
-        "player_1",
-    )
-    assert resolution.is_valid is False
-    assert resolution.error_message
+    with pytest.raises(IllegalAction):
+        agent.validate_and_resolve(
+            {
+                "action_type": "play_king",
+                "parameters": {"target_player": "player_2"},
+                "reasoning": "",
+                "public_statement": "I play the King.",
+            },
+            "player_1",
+        )
 
 
 @pytest.mark.integration
@@ -303,7 +489,13 @@ def test_self_validation_present(openai_client) -> None:
     # Re-run capturing messages via a direct loop call to inspect tool usage.
     messages = [
         {"role": "system", "content": agent.system_prompt},
-        {"role": "user", "content": "Call get_game_state to inspect the board, then reply done."},
+        {
+            "role": "user",
+            "content": (
+                "Call get_game_state to inspect the board, then call finish_resolution "
+                "with is_valid=true and a short narration."
+            ),
+        },
     ]
     loop = agent._call_llm(messages, tools=agent.tools)
     tool_names = [

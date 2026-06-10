@@ -5,6 +5,8 @@ from types import SimpleNamespace
 import pytest
 
 from playtest.agents.player import PlayerAction, PlayerAgent
+from playtest.config import get_settings
+from playtest.errors import PlaytestError
 from playtest.state.manager import GameStateManager
 from playtest.tools import ToolRegistry
 
@@ -69,6 +71,10 @@ def _tool_names(schemas: list[dict]) -> set[str]:
     return {schema["function"]["name"] for schema in schemas}
 
 
+def _state(turn_phase: str, hand: list[str]) -> dict:
+    return {"turn_phase": turn_phase, "players": {"player_1": {"hand": hand}}}
+
+
 def _make_agent(
     client: object,
     *,
@@ -119,11 +125,13 @@ class _ScriptedCompletions:
     def __init__(self, messages: list[_FakeMessage]) -> None:
         self._messages = messages
         self._calls = 0
+        self.seen_messages: list[list[dict]] = []
 
     def create(self, **kwargs: object) -> object:
         # Every player LLM call must force a tool call with no parallelism.
         assert kwargs["tool_choice"] == "required"
         assert kwargs["parallel_tool_calls"] is False
+        self.seen_messages.append(kwargs["messages"])  # type: ignore[arg-type]
         index = min(self._calls, len(self._messages) - 1)
         self._calls += 1
         return SimpleNamespace(choices=[SimpleNamespace(message=self._messages[index])])
@@ -131,16 +139,44 @@ class _ScriptedCompletions:
 
 class _FakeClient:
     def __init__(self, messages: list[_FakeMessage]) -> None:
-        self.chat = SimpleNamespace(completions=_ScriptedCompletions(messages))
+        self.completions = _ScriptedCompletions(messages)
+        self.chat = SimpleNamespace(completions=self.completions)
 
 
-def _draw_then_act(action: str, args: dict) -> _FakeClient:
-    """Observe with get_game_state, then call an action tool."""
-    return _FakeClient(
-        [
-            _FakeMessage([_FakeToolCall("get_game_state", {"reasoning": "look"})]),
-            _FakeMessage([_FakeToolCall(action, args)]),
-        ]
+def _manager_of(agent: PlayerAgent) -> GameStateManager:
+    return agent.tool_registry.get_state_tool.manager
+
+
+def _make_resolver(agent: PlayerAgent, record: list[PlayerAction]):
+    """Stub GM resolver: a draw flips to play (hand grows); a play ends the turn."""
+    manager = _manager_of(agent)
+
+    def resolve(action: PlayerAction) -> dict:
+        record.append(action)
+        view = copy.deepcopy(manager.get_state(action.player_id))
+        if action.action_type == "draw_card":
+            view["turn_phase"] = "play"
+            hand = view["players"][action.player_id]["hand"]
+            view["players"][action.player_id]["hand"] = hand + ["Guard"]
+            view["players"][action.player_id]["hand_count"] = len(hand) + 1
+            turn_ended = False
+        else:
+            turn_ended = True
+        return {
+            "filtered_state": view,
+            "narration": "ok",
+            "private_info": None,
+            "turn_ended": turn_ended,
+        }
+
+    return resolve
+
+
+def _take_turn(agent: PlayerAgent, record: list[PlayerAction], **kwargs):
+    return agent.take_turn(
+        _manager_of(agent).get_state("player_1"),
+        resolve_action=_make_resolver(agent, record),
+        **kwargs,
     )
 
 
@@ -149,26 +185,26 @@ def _draw_then_act(action: str, args: dict) -> _FakeClient:
 
 def test_draw_phase_exposes_only_draw_card(settings) -> None:
     agent = _make_agent(_FakeClient([]), turn_phase="draw")
-    names = _tool_names(agent._get_available_tools("draw", ["King"]))
+    names = _tool_names(agent._get_available_tools(_state("draw", ["King"])))
     assert names == {"query_rulebook", "get_game_state", "draw_card"}
 
 
 def test_play_phase_exposes_only_matching_play_tools(settings) -> None:
     agent = _make_agent(_FakeClient([]), turn_phase="play")
-    names = _tool_names(agent._get_available_tools("play", ["Guard", "Prince"]))
+    names = _tool_names(agent._get_available_tools(_state("play", ["Guard", "Prince"])))
     assert names == {"query_rulebook", "get_game_state", "play_guard", "play_prince"}
 
 
 def test_countess_forced_play_with_king(settings) -> None:
     agent = _make_agent(_FakeClient([]), turn_phase="play")
-    names = _tool_names(agent._get_available_tools("play", ["Countess", "King"]))
+    names = _tool_names(agent._get_available_tools(_state("play", ["Countess", "King"])))
     action_tools = names - {"query_rulebook", "get_game_state"}
     assert action_tools == {"play_countess"}
 
 
 def test_countess_forced_play_with_prince(settings) -> None:
     agent = _make_agent(_FakeClient([]), turn_phase="play")
-    names = _tool_names(agent._get_available_tools("play", ["Countess", "Prince"]))
+    names = _tool_names(agent._get_available_tools(_state("play", ["Countess", "Prince"])))
     action_tools = names - {"query_rulebook", "get_game_state"}
     assert action_tools == {"play_countess"}
 
@@ -176,31 +212,48 @@ def test_countess_forced_play_with_prince(settings) -> None:
 # --- take_turn behavior (scripted fake client) ------------------------------
 
 
-def test_take_turn_returns_wellformed_action(settings) -> None:
-    client = _draw_then_act(
-        "draw_card", {"reasoning": "deck has cards", "public_statement": "I draw."}
+def test_take_turn_draws_then_plays(settings) -> None:
+    # Observe, draw (phase flips to play, hand grows), then play — all in one invocation.
+    client = _FakeClient(
+        [
+            _FakeMessage([_FakeToolCall("get_game_state", {"reasoning": "look"})]),
+            _FakeMessage([_FakeToolCall("draw_card", {"reasoning": "r", "public_statement": "p"})]),
+            _FakeMessage(
+                [_FakeToolCall("play_guard", {"reasoning": "r", "public_statement": "p"})]
+            ),
+        ]
     )
     agent = _make_agent(client, turn_phase="draw")
-    action = agent.take_turn()
+    record: list[PlayerAction] = []
+    action = _take_turn(agent, record)
 
+    assert [a.action_type for a in record] == ["draw_card", "play_guard"]
     assert isinstance(action, PlayerAction)
-    assert action.player_id == "player_1"
-    assert action.action_type == "draw_card"
-    assert action.parameters == {}
+    assert action.action_type == "play_guard"  # take_turn returns the last (turn-ending) action
 
 
 def test_reasoning_and_public_statement_captured_separately(settings) -> None:
-    client = _draw_then_act(
-        "play_guard",
-        {
-            "target_player": "player_2",
-            "named_card": "Priest",
-            "reasoning": "private deduction",
-            "public_statement": "I accuse you!",
-        },
+    client = _FakeClient(
+        [
+            _FakeMessage([_FakeToolCall("get_game_state", {"reasoning": "look"})]),
+            _FakeMessage(
+                [
+                    _FakeToolCall(
+                        "play_guard",
+                        {
+                            "target_player": "player_2",
+                            "named_card": "Priest",
+                            "reasoning": "private deduction",
+                            "public_statement": "I accuse you!",
+                        },
+                    )
+                ]
+            ),
+        ]
     )
     agent = _make_agent(client, turn_phase="play", p1_hand=["Guard"])
-    action = agent.take_turn()
+    record: list[PlayerAction] = []
+    action = _take_turn(agent, record)
 
     assert action.reasoning == "private deduction"
     assert action.public_statement == "I accuse you!"
@@ -209,33 +262,66 @@ def test_reasoning_and_public_statement_captured_separately(settings) -> None:
     assert action.parameters == {"target_player": "player_2", "named_card": "Priest"}
 
 
-def test_observes_game_state_before_acting(settings) -> None:
-    client = _draw_then_act("draw_card", {"reasoning": "r", "public_statement": "p"})
+def test_context_and_private_memory_injected_into_prompt(settings) -> None:
+    client = _FakeClient(
+        [
+            _FakeMessage([_FakeToolCall("draw_card", {"reasoning": "r", "public_statement": "p"})]),
+            _FakeMessage(
+                [_FakeToolCall("play_guard", {"reasoning": "r", "public_statement": "p"})]
+            ),
+        ]
+    )
     agent = _make_agent(client, turn_phase="draw")
-    agent.take_turn()
+    record: list[PlayerAction] = []
+    _take_turn(
+        agent,
+        record,
+        context="Your last move was rejected: target is protected.",
+        private_memory=["player_2 was holding the Baron last round"],
+    )
 
-    roles_and_tools = [(m.get("role"), m.get("tool_call_id")) for m in agent.conversation_history]
-    # A get_game_state tool result is in the history before the action returned.
-    assert ("tool", "call_get_game_state") in roles_and_tools
-
-
-def test_game_context_injected_as_user_message(settings) -> None:
-    client = _draw_then_act("draw_card", {"reasoning": "r", "public_statement": "p"})
-    agent = _make_agent(client, turn_phase="draw")
-    agent.take_turn(game_context="Your last move was rejected: target is protected.")
-
-    user_messages = [m["content"] for m in agent.conversation_history if m["role"] == "user"]
-    assert any("rejected" in c for c in user_messages)
+    first_prompt = client.completions.seen_messages[0][1]["content"]
+    assert "rejected" in first_prompt
+    assert "Baron" in first_prompt
 
 
 def test_loop_terminates_after_max_iterations(settings) -> None:
-    # Client that never calls an action tool, only observes.
+    # Client that never completes a turn (only observes) must crash, not hang.
     never_acts = _FakeClient(
         [_FakeMessage([_FakeToolCall("get_game_state", {"reasoning": "again"})])]
     )
     agent = _make_agent(never_acts, turn_phase="draw")
-    with pytest.raises(RuntimeError):
-        agent.take_turn()
+    with pytest.raises(PlaytestError):
+        _take_turn(agent, [])
+
+
+def test_forced_action_deadline_narrows_tools_and_commits(settings) -> None:
+    """A chronic over-querier is forced to act once observation tools are withdrawn."""
+    max_obs = get_settings().max_observation_calls
+    offered_log: list[set[str]] = []
+
+    class _DeadlineCompletions:
+        def create(self, **kwargs: object) -> object:
+            offered = {t["function"]["name"] for t in kwargs["tools"]}  # type: ignore[union-attr]
+            offered_log.append(offered)
+            if "get_game_state" in offered:
+                call = _FakeToolCall("get_game_state", {"reasoning": "again"})
+            else:
+                call = _FakeToolCall("play_king", {"reasoning": "r", "public_statement": "s"})
+            return SimpleNamespace(choices=[SimpleNamespace(message=_FakeMessage([call]))])
+
+    class _DeadlineClient:
+        def __init__(self) -> None:
+            self.chat = SimpleNamespace(completions=_DeadlineCompletions())
+
+    agent = _make_agent(_DeadlineClient(), turn_phase="play", p1_hand=["King"])
+    record: list[PlayerAction] = []
+    action = _take_turn(agent, record)
+
+    assert action.action_type == "play_king"
+    # The first N calls still offered observation tools; the deadline withdrew them after.
+    assert all("get_game_state" in s for s in offered_log[:max_obs])
+    assert "get_game_state" not in offered_log[max_obs]
 
 
 # --- Integration (real LLM) -------------------------------------------------
@@ -257,8 +343,20 @@ def test_take_turn_draws_during_draw_phase(openai_client) -> None:
     registry = ToolRegistry(config, GameStateManager())
     gm = GMAgent(config, registry, openai_client)
     gm.initialize_game(seed=1)
-
+    manager = registry.get_state_tool.manager
     player = PlayerAgent("player_1", config, registry, openai_client)
-    action = player.take_turn()
 
-    assert action.action_type == "draw_card"
+    record: list[PlayerAction] = []
+
+    def resolve(action: PlayerAction) -> dict:
+        record.append(action)
+        res = gm.validate_and_resolve(action.model_dump(), "player_1")
+        return {
+            "filtered_state": manager.get_state("player_1"),
+            "narration": res.narration,
+            "private_info": res.private_info,
+            "turn_ended": action.action_type.startswith("play_"),
+        }
+
+    player.take_turn(manager.get_state("player_1"), resolve_action=resolve)
+    assert record[0].action_type == "draw_card"
