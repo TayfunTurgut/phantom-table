@@ -1,0 +1,16 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.16
+    hooks:
+      - id: ruff-check
+      - id: ruff-format
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy
+        # language: system uses the project venv so the pydantic plugin and
+        # dependencies resolve; pass_filenames: false respects files=["src"].
+        entry: mypy
+        language: system
+        types: [python]
+        pass_filenames: false

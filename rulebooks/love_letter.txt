@@ -1,0 +1,61 @@
+Love Letter (Classic 16-Card Edition)
+
+Overview
+Love Letter is a game of risk, deduction, and luck for 2 to 6 players. You are one of many suitors trying to deliver a love letter into the hands of the Princess. Each round, players hold and play cards representing members of the royal household who can carry your letter closer to the Princess or knock your rivals out of contention. The player who is still holding the highest-ranked card at the end of a round, or the last suitor remaining, wins that round and earns a token of affection. The first player to collect enough tokens wins the game.
+
+Goal
+Win rounds to earn tokens of affection. The number of tokens needed to win depends on the player count: 2 players need 7 tokens, 3 players need 5 tokens, and 4 players need 4 tokens.
+
+Components
+The deck contains exactly 16 cards, each showing a character with a numbered rank:
+- Guard (rank 1) - 5 copies
+- Priest (rank 2) - 2 copies
+- Baron (rank 3) - 2 copies
+- Handmaid (rank 4) - 2 copies
+- Prince (rank 5) - 2 copies
+- King (rank 6) - 1 copy
+- Countess (rank 7) - 1 copy
+- Princess (rank 8) - 1 copy
+Players also use tokens of affection to track round wins.
+
+Setup
+Shuffle the 16 cards to form the deck. Remove the top card of the deck face-down without looking at it; this removed card is set aside and is never revealed during the round. In a 2-player game, take the next 3 cards off the deck and place them face-up where everyone can see them; these revealed cards are public information and are known to be out of play for the round. Deal 1 card to each player as their starting hand. The remaining cards form the draw deck. The first player of the very first round is chosen at random; in later rounds, the winner of the previous round goes first.
+
+Turn Structure
+On your turn, first draw 1 card from the draw deck so that you are holding 2 cards. Then choose 1 of your 2 cards to play face-up in front of you and resolve its effect. Played and discarded cards stay face-up in your discard pile and are public information that all players can see. After resolving the effect, your turn ends and play passes to the next player still in the round.
+
+Card: Guard (1)
+When you play a Guard, choose another player and name a card that is not a Guard. If that player is holding the card you named, they are eliminated from the round. You may not name "Guard". You cannot choose a player who is protected by a Handmaid. If every other player is protected by a Handmaid, the Guard is played with no effect.
+
+Card: Priest (2)
+When you play a Priest, choose another player and secretly look at their hand. You cannot choose a player protected by a Handmaid. If every other player is protected, the Priest is played with no effect.
+
+Card: Baron (3)
+When you play a Baron, choose another player and secretly compare hands with them. The player holding the lower-ranked card is eliminated from the round. If the two cards are of equal rank, nothing happens and neither player is eliminated. You cannot choose a player protected by a Handmaid. If every other player is protected, the Baron is played with no effect.
+
+Card: Handmaid (4)
+When you play a Handmaid, you are protected from the effects of all other players' cards until the start of your next turn. While protected, you cannot be chosen as the target of any card effect.
+
+Card: Prince (5)
+When you play a Prince, choose any player, including yourself. That player discards their hand (without resolving its effect) and draws a new card. If the draw deck is empty, they draw the card that was removed face-down at setup instead. If the discarded card is the Princess, that player is eliminated. You cannot choose another player who is protected by a Handmaid; if every other player is protected, you must choose yourself.
+
+Card: King (6)
+When you play a King, choose another player and trade hands with them. You cannot choose a player protected by a Handmaid. If every other player is protected, the King is played with no effect.
+
+Card: Countess (7)
+The Countess has no effect when played. However, if the Countess is ever in your hand together with the King (6) or a Prince (5), you must play the Countess on that turn. If you are not holding the King or a Prince, you may play the Countess whenever you wish, just like any other card.
+
+Card: Princess (8)
+The Princess has no effect when played. However, if you ever play or discard the Princess for any reason, you are immediately eliminated from the round.
+
+Edge Cases and Special Rules
+Handmaid protection: A player who played a Handmaid on their last turn cannot be targeted. Cards that must target another player (Guard, Priest, Baron, King) have no effect if all other players are protected. A Prince must be aimed at yourself if all other players are protected.
+Countess forced play: If you hold the Countess together with the King or a Prince, you are required to play the Countess that turn.
+Baron tie: If both compared cards share the same rank, neither player is eliminated.
+Prince on the Princess: If a Prince forces a player (including the player who played the Prince) to discard the Princess, that player is eliminated.
+
+Round End
+A round ends as soon as either the draw deck is empty at the end of a player's turn, or only one player remains because all others have been eliminated. If only one player remains, that player wins the round. If the deck runs out, all players still in the round reveal their hands and the player holding the highest-ranked card wins the round. If there is a tie for the highest card, the tied player with the highest sum of values in their discard pile wins. The winner of the round gains 1 token of affection.
+
+Game End
+The first player to collect the required number of tokens of affection wins the game: 7 tokens for 2 players, 5 tokens for 3 players, and 4 tokens for 4 players. The winner of each round starts the next round.
