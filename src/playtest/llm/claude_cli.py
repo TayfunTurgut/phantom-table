@@ -12,10 +12,10 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING
 
 from playtest.errors import PlaytestError
-from playtest.llm import LLMClient, LLMTool
+from playtest.llm import LLMClient
 
 if TYPE_CHECKING:
     from playtest.config import Settings
@@ -33,8 +33,6 @@ def _flatten(messages: list[dict]) -> tuple[str, str]:
 
 
 class ClaudeCLIClient(LLMClient):
-    supports_tools: ClassVar[bool] = False
-
     def __init__(self, settings: Settings) -> None:
         self.models = {
             "player": settings.claude_player_model,
@@ -51,12 +49,7 @@ class ClaudeCLIClient(LLMClient):
         *,
         role: str,
         json_schema: dict | None = None,
-        tools: list[LLMTool] | None = None,
     ) -> str:
-        if tools:
-            raise ValueError(
-                "the claude_cli backend does not support tools; gate on client.supports_tools"
-            )
         system, prompt = _flatten(messages)
 
         command = [

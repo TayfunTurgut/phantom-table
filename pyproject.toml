@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
 authors = [{ name = "Tayfun Turgut" }]
-keywords = ["llm", "agents", "board-games", "playtesting", "openai"]
+keywords = ["llm", "agents", "board-games", "playtesting", "claude"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -21,13 +21,9 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
-    "openai>=2.13",
-    "chromadb>=0.5",
-    "tiktoken>=0.13",
     "rich>=14.0",
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
-    "langsmith>=0.3",
 ]
 
 [project.optional-dependencies]

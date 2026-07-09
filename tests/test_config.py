@@ -1,90 +1,40 @@
-"""Tests for settings loading and LangSmith tracing configuration (offline)."""
-
-import os
+"""Tests for settings loading (offline)."""
 
 import pytest
 
-from playtest.config import configure_tracing, get_settings
-
-_LANGCHAIN_VARS = ("LANGCHAIN_TRACING_V2", "LANGCHAIN_API_KEY", "LANGCHAIN_PROJECT")
-_LANGSMITH_VARS = ("LANGSMITH_TRACING", "LANGSMITH_API_KEY", "LANGSMITH_PROJECT")
+from playtest.config import get_settings
 
 
 @pytest.fixture(autouse=True)
 def _isolate_env(monkeypatch, tmp_path):
-    """Reset the settings cache and scrub LangChain/LangSmith env so cases don't leak."""
+    """Reset the settings cache and run from a dir without a .env so the
+    developer's real .env can't bleed into these offline cases."""
     get_settings.cache_clear()
-    # Settings reads env_file=".env"; run from a dir without one so the developer's
-    # real .env can't bleed into these offline cases.
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("OPENAI_API_KEY", "test-openai-key")
-    for var in (*_LANGCHAIN_VARS, *_LANGSMITH_VARS):
-        monkeypatch.delenv(var, raising=False)
     yield
-    # configure_tracing() sets LANGCHAIN_* via os.environ.setdefault (not monkeypatch),
-    # so scrub them explicitly to avoid leaking into other tests.
-    for var in _LANGCHAIN_VARS:
-        os.environ.pop(var, None)
     get_settings.cache_clear()
 
 
-def test_configure_tracing_disabled_leaves_env_unset(monkeypatch):
-    monkeypatch.setenv("LANGSMITH_TRACING", "false")
-    get_settings.cache_clear()
+def test_claude_model_defaults():
+    settings = get_settings()
 
-    configure_tracing()
-
-    assert "LANGCHAIN_TRACING_V2" not in os.environ
-
-
-def test_configure_tracing_enabled_sets_langchain_env(monkeypatch):
-    monkeypatch.setenv("LANGSMITH_TRACING", "true")
-    monkeypatch.setenv("LANGSMITH_API_KEY", "test-key")
-    monkeypatch.setenv("LANGSMITH_PROJECT", "test-project")
-    get_settings.cache_clear()
-
-    configure_tracing()
-
-    assert os.environ["LANGCHAIN_TRACING_V2"] == "true"
-    assert os.environ["LANGCHAIN_API_KEY"] == "test-key"
-    assert os.environ["LANGCHAIN_PROJECT"] == "test-project"
+    assert settings.claude_player_model == "sonnet"
+    assert settings.claude_digest_model == "sonnet"
+    assert settings.claude_codegen_model == "sonnet"
+    assert settings.claude_cli_path == "claude"
+    assert settings.claude_code_oauth_token is None
 
 
-def test_configure_tracing_enabled_without_key_is_noop(monkeypatch):
-    monkeypatch.setenv("LANGSMITH_TRACING", "true")
-    monkeypatch.setenv("LANGSMITH_API_KEY", "")
-    get_settings.cache_clear()
-
-    configure_tracing()
-
-    assert "LANGCHAIN_TRACING_V2" not in os.environ
-
-
-def test_settings_langsmith_defaults_and_types(monkeypatch):
-    monkeypatch.setenv("LANGSMITH_TRACING", "true")
-    monkeypatch.setenv("LANGSMITH_API_KEY", "abc123")
+def test_settings_read_from_env(monkeypatch):
+    monkeypatch.setenv("CLAUDE_PLAYER_MODEL", "opus")
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "tok-xyz")
     get_settings.cache_clear()
 
     settings = get_settings()
 
-    assert settings.langsmith_tracing is True
-    assert settings.langsmith_api_key == "abc123"
-    assert settings.langsmith_project == "phantom-table"
+    assert settings.claude_player_model == "opus"
+    assert settings.claude_code_oauth_token == "tok-xyz"
 
 
-def test_settings_langsmith_defaults_when_absent():
-    settings = get_settings()
-
-    assert settings.langsmith_tracing is False
-    assert settings.langsmith_api_key is None
-    assert settings.langsmith_project == "phantom-table"
-
-
-def test_model_tier_defaults():
-    settings = get_settings()
-
-    # Runtime decisions on the cheap tier, one-time codegen on the strong tier.
-    assert settings.player_model == "gpt-5-mini"
-    assert settings.digest_model == "gpt-5"
-    assert settings.codegen_model == "gpt-5"
-    assert settings.max_steps >= 500
+def test_safety_cap_default():
+    assert get_settings().max_steps >= 500

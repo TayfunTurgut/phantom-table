@@ -34,9 +34,10 @@ runner. Install it first if you haven't:
 git clone https://github.com/TayfunTurgut/phantom-table.git
 cd phantom-table
 
-# Create your environment file and add your OpenAI API key
+# Create your environment file. Auth is your Claude Code login — no API key.
 cp .env.example .env
-# edit .env and set OPENAI_API_KEY
+# Optional: set CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`) in .env,
+# or just log in once with the Claude Code CLI.
 
 # Create the virtual environment and install all dependencies (incl. dev tools)
 uv sync --extra dev
@@ -44,6 +45,16 @@ uv sync --extra dev
 
 `uv sync` creates a `.venv/` and installs the locked dependencies (from `uv.lock`)
 plus the `playtest` package itself in editable mode.
+
+Completions run through the **Claude Code CLI**, so it must be installed and
+authenticated on this machine:
+
+```bash
+npm install -g @anthropic-ai/claude-code
+claude --version
+# Authenticate once: interactive `claude` login, or `claude setup-token`
+# (then put the token in .env as CLAUDE_CODE_OAUTH_TOKEN).
+```
 
 ## Running commands
 
@@ -125,7 +136,7 @@ ambiguities it finds, with its chosen rulings, in `digest.md`.
 | `engine.py` | The generated game engine (single `Game` class implementing the engine contract) |
 | `test_engine.py` | The generated pytest suite anchored to the digest's rules |
 | `player_briefing.txt` | Rules summary injected into player agents' prompts |
-| `chromadb/`, `rulebook.txt` | Embedded rulebook for the players' `query_rulebook` tool |
+| `rulebook.txt` | The raw rulebook, injected in full into player prompts so agents can consult the exact rules |
 | `meta.json` | Models used, validation attempt count, timestamp |
 
 Validation runs in subprocesses: the generated tests must pass and the contract
@@ -179,16 +190,9 @@ uv run playtest analyze --log-dir results
 uv run playtest review --log-file results/game_001.json --full
 ```
 
-## Observability (optional)
-
-Set `LANGSMITH_TRACING=true` and `LANGSMITH_API_KEY` in your `.env` to trace every LLM call
-to [LangSmith](https://smith.langchain.com/) under the `LANGSMITH_PROJECT`
-name. Tracing is off by default and requires no LangSmith account to run playtests.
-
 ## Smoke test
 
-Verify the active LLM and embedding backends (makes one real completion and one
-embedding):
+Verify Claude Code is reachable (makes one real `claude -p` completion):
 
 ```bash
 uv run playtest smoke-test
@@ -196,30 +200,28 @@ uv run playtest smoke-test
 
 ## Configuration
 
-All settings are read from `.env` (see `.env.example`). The headline knob is the
-LLM backend — all completions flow through one client interface
-(`playtest.llm.LLMClient`) with selectable adapters:
+All settings are read from `.env` (see `.env.example`). Every completion flows
+through one client interface (`playtest.llm.LLMClient`), backed by **headless
+`claude -p`** — one stateless, isolated subprocess per call, structured output
+enforced via `--json-schema`. There is no per-turn memory: each decision is a
+fresh, self-contained call (a player's only carried memory is the notebook it
+rewrites for itself each turn).
 
-- `LLM_BACKEND=openai` — the OpenAI API. Requires `OPENAI_API_KEY`. Models per
-  role: `PLAYER_MODEL` (default `gpt-5-mini`),
-  `DIGEST_MODEL`/`CODEGEN_MODEL` (default `gpt-5`).
-- `LLM_BACKEND=claude_cli` — headless `claude -p` on your Claude subscription
-  (works with enterprise OAuth; set `CLAUDE_CODE_OAUTH_TOKEN` from
-  `claude setup-token`). Models per role: `CLAUDE_PLAYER_MODEL` /
-  `CLAUDE_DIGEST_MODEL` / `CLAUDE_CODEGEN_MODEL`
-  (default `sonnet`). Adds ~1-2s spawn overhead per call; players' rulebook
-  tool is disabled (no tool round-trips through the CLI). LangSmith tracing
-  covers the openai backend only.
+Auth is your Claude Code login: interactive login, or set
+`CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`) in `.env`. No API key is
+used and nothing is billed per token — completions run against your Claude
+subscription.
 
-`EMBEDDING_BACKEND` picks the rulebook index embeddings: `openai`
-(`EMBEDDING_MODEL`, default `text-embedding-3-small`) or `local` (ChromaDB's
-built-in ONNX model — free and offline). Indexes are backend-specific;
-re-ingest after switching.
+Models are set per role: `CLAUDE_PLAYER_MODEL` (runtime decisions),
+`CLAUDE_DIGEST_MODEL` / `CLAUDE_CODEGEN_MODEL` (one-time game generation), all
+defaulting to `sonnet`. Bump the generation models to `opus` for stronger
+codegen if your plan allows. Each call adds ~1-2s of CLI spawn overhead.
 
-Other knobs: `GAME_CONFIGS_DIR` (where generated games live), `MAX_STEPS`
-(default 1000, a crashing ceiling on decisions per session),
-`PLAYER_RULEBOOK_QUERIES` (whether players may consult the rulebook before
-choosing), and `LLM_TIMEOUT_SECONDS` (default 900).
+Players consult the rules by reading the **full rulebook text**, injected
+directly into their prompt (no vector search / RAG). Other knobs:
+`CLAUDE_CLI_PATH` (default `claude`), `GAME_CONFIGS_DIR` (where generated games
+live), `MAX_STEPS` (default 1000, a crashing ceiling on decisions per session),
+and `LLM_TIMEOUT_SECONDS` (default 900).
 
 ## Development
 

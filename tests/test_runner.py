@@ -9,7 +9,6 @@ from playtest.runner import resolve_game, run_game
 
 @pytest.fixture(autouse=True)
 def _settings_env(monkeypatch):
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()

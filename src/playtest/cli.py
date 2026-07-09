@@ -3,33 +3,22 @@ import argparse
 from rich.console import Console
 from rich.panel import Panel
 
-from playtest.config import configure_tracing, get_settings
+from playtest.config import get_settings
 
 
 def _smoke_test() -> None:
-    """Verify the active LLM backend (one completion) and embedding backend."""
+    """Verify Claude Code is reachable with one real `claude -p` completion."""
     console = Console()
     settings = get_settings()
-    console.print(f"[bold]Running smoke test (llm_backend={settings.llm_backend})...[/bold]")
+    console.print("[bold]Running smoke test (claude -p)...[/bold]")
 
     try:
-        from playtest.ingestion.chunker import _embed_texts
         from playtest.llm import create_llm_client
 
         client = create_llm_client(settings)
         reply = client.complete(
             [{"role": "user", "content": "Say hello in one sentence."}],
             role="player",
-        )
-
-        dimension = len(_embed_texts(["playtest smoke test"])[0])
-        tracing_on = (
-            settings.llm_backend == "openai"
-            and settings.langsmith_tracing
-            and bool(settings.langsmith_api_key)
-        )
-        tracing_status = (
-            f"enabled (project {settings.langsmith_project})" if tracing_on else "disabled"
         )
     except Exception as exc:  # noqa: BLE001 - surface any failure to the user
         console.print(
@@ -44,13 +33,9 @@ def _smoke_test() -> None:
     console.print(
         Panel(
             f"[bold green]Smoke test passed[/bold green]\n\n"
-            f"[bold]LLM backend:[/bold] {settings.llm_backend}\n"
             f"[bold]Player model:[/bold] {client.models['player']}    "
             f"[bold]Codegen model:[/bold] {client.models['codegen']}\n"
-            f"[bold]Response:[/bold] {reply}\n\n"
-            f"[bold]Embedding backend:[/bold] {settings.embedding_backend} "
-            f"(dimension {dimension})\n\n"
-            f"[bold]Tracing:[/bold] {tracing_status}",
+            f"[bold]Response:[/bold] {reply}",
             title="Smoke Test",
             border_style="green",
         )
@@ -79,7 +64,7 @@ def _run_ingest(rulebook: str, name: str) -> None:
             f"[bold]Actions:[/bold] {', '.join(a.name for a in digest.actions)}\n"
             f"[bold]Validated on attempt:[/bold] {artifacts.meta.get('attempts')}\n"
             f"[bold]Artifacts:[/bold] engine.py, test_engine.py, digest.md, digest.json, "
-            f"player_briefing.txt, rulebook.txt, chromadb/, meta.json",
+            f"player_briefing.txt, rulebook.txt, meta.json",
             title="Ingestion Complete",
             border_style="green",
         )
@@ -243,7 +228,6 @@ def _run_review(log_file: str, full: bool) -> None:
 
 
 def main() -> None:
-    configure_tracing()
     parser = argparse.ArgumentParser(description="AI Board Game Playtesting Tool")
     subparsers = parser.add_subparsers(dest="command")
 

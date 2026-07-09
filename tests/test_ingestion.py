@@ -169,11 +169,8 @@ HARNESS_BUG_ENGINE = GOOD_ENGINE.replace(
 
 @pytest.fixture(autouse=True)
 def _env(monkeypatch, tmp_path):
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     monkeypatch.setenv("GAME_CONFIGS_DIR", str(tmp_path / "game_configs"))
     get_settings.cache_clear()
-    # No network: rulebook embedding is exercised elsewhere; stub it here.
-    monkeypatch.setattr("playtest.ingestion.pipeline.embed_and_store", lambda *a, **k: None)
     yield
     get_settings.cache_clear()
 
@@ -303,9 +300,9 @@ def test_extract_python_prefers_largest_fence():
     assert "def f" in extract_python(content)
 
 
-def test_digest_schema_is_openai_strict_compatible():
-    """OpenAI strict structured outputs: every object must have
-    additionalProperties=false and require every declared property; open-key
+def test_digest_schema_is_strict_compatible():
+    """Strict structured outputs (`claude -p --json-schema`): every object must
+    have additionalProperties=false and require every declared property; open-key
     dicts (typed additionalProperties) are rejected."""
 
     def walk(node, path="$"):

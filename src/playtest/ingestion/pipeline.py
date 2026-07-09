@@ -33,7 +33,6 @@ from rich.console import Console
 
 from playtest.config import get_settings
 from playtest.errors import PlaytestError
-from playtest.ingestion.chunker import chunk_rulebook, embed_and_store
 from playtest.ingestion.codegen import generate_engine_source, generate_test_source
 from playtest.ingestion.digest import generate_digest, save_digest
 from playtest.ingestion.schemas import GameArtifacts
@@ -121,10 +120,6 @@ def ingest_rulebook(
     config_dir.mkdir(parents=True)
     (config_dir / "rulebook.txt").write_text(rulebook_text, encoding="utf-8")
 
-    _console.print("[cyan]Embedding rulebook for Q&A...[/cyan]")
-    chunks = chunk_rulebook(rulebook_text, game_name=game_name)
-    embed_and_store(chunks, game_name, str(config_dir / "chromadb"))
-
     _console.print(f"[cyan]Generating digest with {client.models['digest']}...[/cyan]")
     digest = generate_digest(client, rulebook_text)
     save_digest(digest, config_dir)
@@ -170,7 +165,6 @@ def ingest_rulebook(
                         "game_name": digest.game_name,
                         "min_players": digest.min_players,
                         "max_players": digest.max_players,
-                        "llm_backend": settings.llm_backend,
                         "digest_model": client.models["digest"],
                         "codegen_model": client.models["codegen"],
                         "attempts": attempt,

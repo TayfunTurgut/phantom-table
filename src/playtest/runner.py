@@ -15,7 +15,6 @@ from playtest.engine.loader import load_engine
 from playtest.errors import PlaytestError
 from playtest.llm import LLMClient, create_llm_client
 from playtest.session import run_session
-from playtest.tools.rulebook import RulebookTool
 from playtest.ui.logger import GameLogger
 from playtest.ui.observer import GameObserver
 
@@ -53,34 +52,28 @@ def _make_players(
     client: LLMClient,
     num_players: int,
     archetypes: list[str],
-) -> tuple[dict, RulebookTool | None]:
-    settings = get_settings()
-    rulebook = None
-    if (
-        settings.player_rulebook_queries
-        and client.supports_tools
-        and config_dir is not None
-        and (config_dir / "chromadb").is_dir()
-    ):
-        rulebook = RulebookTool(str(config_dir), engine.game_name)
+) -> dict:
     briefing = ""
+    rulebook_text = ""
     if config_dir is not None:
         briefing_path = config_dir / "player_briefing.txt"
         if briefing_path.is_file():
             briefing = briefing_path.read_text(encoding="utf-8")
+        rulebook_path = config_dir / "rulebook.txt"
+        if rulebook_path.is_file():
+            rulebook_text = rulebook_path.read_text(encoding="utf-8")
 
-    players = {
+    return {
         seat: PlayerAgent(
             seat,
             client,
             game_name=engine.game_name,
             briefing=briefing,
             archetype=archetypes[i],
-            rulebook=rulebook,
+            rulebook_text=rulebook_text,
         )
         for i, seat in enumerate(seats_for(num_players))
     }
-    return players, rulebook
 
 
 def run_game(
@@ -112,7 +105,7 @@ def run_game(
         seed = random.randrange(2**32)
 
     client = create_llm_client(settings)
-    players, rulebook = _make_players(engine, config_dir, client, num_players, archetypes)
+    players = _make_players(engine, config_dir, client, num_players, archetypes)
 
     session_id = str(uuid.uuid4())
     observer = GameObserver(console=console, verbose=verbose)
@@ -133,8 +126,6 @@ def run_game(
             max_steps=settings.max_steps,
         )
     finally:
-        if rulebook is not None:
-            logger.set_run_metadata(rule_queries=rulebook.get_query_log())
         if log_file:
             logger.save(log_file)
             console.print(f"[green]Game log written to[/green] {log_file}")

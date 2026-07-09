@@ -11,12 +11,10 @@ from playtest.llm import ROLES, LLMClient
 class FirstLegalClient(LLMClient):
     """A 'model' that always picks action 0 — enough to drive full games."""
 
-    supports_tools = True
-
     def __init__(self):
         self.models = {role: "stub-model" for role in ROLES}
 
-    def complete(self, messages, *, role, json_schema=None, tools=None):
+    def complete(self, messages, *, role, json_schema=None):
         return json.dumps(
             {
                 "action_index": 0,
@@ -29,7 +27,6 @@ class FirstLegalClient(LLMClient):
 
 @pytest.fixture(autouse=True)
 def _env(monkeypatch):
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     get_settings.cache_clear()
     monkeypatch.setattr("playtest.runner.create_llm_client", lambda settings: FirstLegalClient())
     yield

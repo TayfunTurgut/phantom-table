@@ -114,33 +114,15 @@ def test_empty_legal_set_is_a_harness_bug():
         agent.choose({}, [], [])
 
 
-class FakeRulebook:
-    def __init__(self):
-        self.queries = []
-
-    def query(self, q, n_results=3):
-        self.queries.append(q)
-        return "the Guard guesses a card"
+def test_rulebook_text_lands_in_system_prompt():
+    agent, _ = make_agent([_choice(0)], rulebook_text="The Guard guesses a card.")
+    assert "## Rulebook" in agent.system_prompt
+    assert "The Guard guesses a card." in agent.system_prompt
 
 
-def test_rulebook_becomes_a_tool_when_supported():
-    rulebook = FakeRulebook()
-    agent, client = make_agent([_choice(0)], rulebook=rulebook)
-    agent.choose({}, LEGAL, [])
-
-    tools = client.calls[0]["tools"]
-    assert tools is not None and tools[0].name == "query_rulebook"
-    # The handler is wired to the rulebook.
-    result = tools[0].handler({"query": "what does the guard do", "reasoning": "check"})
-    assert result == "the Guard guesses a card"
-    assert rulebook.queries == ["what does the guard do"]
-
-
-def test_rulebook_dropped_when_backend_lacks_tools():
-    client = StubLLMClient([_choice(0)], supports_tools=False)
-    agent = PlayerAgent("player_1", client, game_name="Test Game", rulebook=FakeRulebook())
-    agent.choose({}, LEGAL, [])
-    assert client.calls[0]["tools"] is None
+def test_no_rulebook_text_omits_section():
+    agent, _ = make_agent([_choice(0)])
+    assert "## Rulebook" not in agent.system_prompt
 
 
 def test_archetype_overlay_lands_in_system_prompt():

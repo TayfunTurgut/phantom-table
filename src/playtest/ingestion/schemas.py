@@ -16,8 +16,8 @@ from pydantic import BaseModel, ConfigDict
 
 
 class ComponentCount(BaseModel):
-    # OpenAI strict structured outputs reject open-key dicts, so component
-    # counts are a list of name/count pairs rather than dict[str, int].
+    # Strict structured outputs reject open-key dicts, so component counts are a
+    # list of name/count pairs rather than dict[str, int].
     model_config = ConfigDict(extra="forbid")
 
     name: str

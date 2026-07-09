@@ -58,7 +58,6 @@ def analyze_games(log_dir: str) -> dict:
     game_lengths_min: list[float] = []
     archetype_games: Counter[str] = Counter()
     archetype_wins: Counter[str] = Counter()
-    rule_queries: Counter[str] = Counter()
 
     for log in logs:
         players = _player_ids(log)
@@ -73,9 +72,6 @@ def analyze_games(log_dir: str) -> dict:
             archetype_games[arch] += 1
             if pid in winners:
                 archetype_wins[arch] += 1
-
-        for query in log.get("rule_queries") or []:
-            rule_queries[query] += 1
 
         for e in log["events"]:
             etype = e["type"]
@@ -120,7 +116,6 @@ def analyze_games(log_dir: str) -> dict:
             (sum(game_lengths_min) / len(game_lengths_min)) if game_lengths_min else 0.0
         ),
         "archetype_performance": archetype_performance,
-        "common_rule_queries": [{"query": q, "count": c} for q, c in rule_queries.most_common()],
     }
 
 
@@ -161,11 +156,3 @@ def print_analytics_report(analytics: dict, console: Console) -> None:
         for arch, s in analytics["archetype_performance"].items():
             arch_table.add_row(arch, str(s["games"]), str(s["wins"]), f"{s['win_rate']:.1%}")
         console.print(arch_table)
-
-    if analytics["common_rule_queries"]:
-        rq = Table(title="Common Rule Queries")
-        rq.add_column("Query")
-        rq.add_column("Count", justify="right")
-        for item in analytics["common_rule_queries"][:15]:
-            rq.add_row(item["query"][:80], str(item["count"]))
-        console.print(rq)

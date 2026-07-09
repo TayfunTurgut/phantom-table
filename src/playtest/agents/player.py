@@ -17,8 +17,7 @@ from dataclasses import dataclass
 
 from playtest.agents.archetypes import apply_archetype
 from playtest.engine import Action
-from playtest.llm import LLMClient, LLMTool
-from playtest.tools.rulebook import RulebookTool
+from playtest.llm import LLMClient
 
 _log = logging.getLogger(__name__)
 
@@ -93,33 +92,6 @@ def _parse_index(choice: dict, count: int) -> int | None:
     return index if 0 <= index < count else None
 
 
-def _rulebook_tool(rulebook: RulebookTool) -> LLMTool:
-    return LLMTool(
-        name="query_rulebook",
-        description=(
-            "Search the game's rulebook for relevant rules and return the most "
-            "relevant passages. Use this when you are unsure how a rule works or "
-            "need to confirm the effect of an action."
-        ),
-        parameters={
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "The rules question or topic to search for.",
-                },
-                "reasoning": {
-                    "type": "string",
-                    "description": "Why you want to look this up in the rulebook.",
-                },
-            },
-            "required": ["query", "reasoning"],
-            "additionalProperties": False,
-        },
-        handler=lambda args: rulebook.query(args.get("query", "")),
-    )
-
-
 class PlayerAgent:
     def __init__(
         self,
@@ -128,17 +100,21 @@ class PlayerAgent:
         game_name: str,
         briefing: str = "",
         archetype: str = "default",
-        rulebook: RulebookTool | None = None,
+        rulebook_text: str = "",
     ) -> None:
         self.player_id = player_id
         self.client = client
         self.archetype = archetype
         self.notes = ""  # self-authored memory, rewritten by the model each decision
-        self.tools = [_rulebook_tool(rulebook)] if rulebook and client.supports_tools else None
 
         prompt = _BASE_PROMPT.format(player_id=player_id, game_name=game_name)
         if briefing.strip():
             prompt += f"\n## About this game\n\n{briefing.strip()}\n"
+        if rulebook_text.strip():
+            prompt += (
+                "\n## Rulebook (full text — consult it for the exact rules)\n\n"
+                f"{rulebook_text.strip()}\n"
+            )
         self.system_prompt = apply_archetype(prompt, archetype)
 
     def choose(self, observation: dict, legal: list[Action], events: list[str]) -> Decision:
@@ -196,9 +172,7 @@ class PlayerAgent:
         )
 
     def _complete(self, messages: list[dict]) -> dict:
-        raw = self.client.complete(
-            messages, role="player", json_schema=_CHOICE_SCHEMA, tools=self.tools
-        )
+        raw = self.client.complete(messages, role="player", json_schema=_CHOICE_SCHEMA)
         try:
             parsed = json.loads(raw)
         except json.JSONDecodeError:
