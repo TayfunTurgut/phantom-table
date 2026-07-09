@@ -25,16 +25,17 @@ class ParityDuel:
     min_players = 2
     max_players = 3
 
-    def setup(self, num_players: int, seed: int) -> dict:
+    def setup(self, num_players: int, seed: int) -> tuple[dict, list[Event]]:
         if not self.min_players <= num_players <= self.max_players:
             raise ValueError(f"Parity Duel supports 2-3 players, got {num_players}")
         rng = random.Random(seed)
-        return {
+        state = {
             "rng_seed": rng.randrange(2**32),
             "num_players": num_players,
             "round": 1,
             "scores": {seat: 0 for seat in seats_for(num_players)},
         }
+        return state, []
 
     def to_act(self, state: dict) -> list[str]:
         if state["round"] > ROUNDS:

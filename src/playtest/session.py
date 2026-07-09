@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from playtest.agents.player import Decision
-    from playtest.engine import Action
+    from playtest.engine import Action, Event
     from playtest.ui.logger import GameLogger
 
 
@@ -57,8 +57,20 @@ def run_session(
     if set(players) != set(seats):
         raise PlaytestError(f"players must be exactly {seats}, got {sorted(players)}")
 
-    state = engine.setup(num_players, seed)
+    state, setup_events = engine.setup(num_players, seed)
     buffers: dict[str, list[str]] = {seat: [] for seat in seats}
+
+    def emit(events: list[Event], step: int) -> None:
+        """Route engine events to seat memory, the log, and the observer."""
+        for event in events:
+            audience = list(event.visible_to) if event.visible_to is not None else seats
+            for seat in audience:
+                buffers[seat].append(event.text)
+            logger.log_event(
+                "engine_event",
+                {"step": step, "text": event.text, "visible_to": event.visible_to},
+            )
+        observer.on_events([e.text for e in events if e.visible_to is None])
 
     logger.log_event(
         "game_start",
@@ -71,6 +83,7 @@ def run_session(
         },
     )
     observer.on_game_start(engine.game_name, seats)
+    emit(setup_events, step=0)
 
     for step in range(1, max_steps + 1):
         status = engine.status(state)
@@ -122,15 +135,7 @@ def run_session(
                 exc, seed=seed, step=step, actions=[d.action for d in decisions]
             ) from exc
 
-        for event in events:
-            audience = list(event.visible_to) if event.visible_to is not None else seats
-            for seat in audience:
-                buffers[seat].append(event.text)
-            logger.log_event(
-                "engine_event",
-                {"step": step, "text": event.text, "visible_to": event.visible_to},
-            )
-        observer.on_events([e.text for e in events if e.visible_to is None])
+        emit(events, step=step)
     else:
         raise PlaytestError(f"session exceeded max_steps={max_steps} without the game ending")
 

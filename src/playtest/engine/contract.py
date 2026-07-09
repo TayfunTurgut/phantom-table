@@ -35,6 +35,7 @@ class Trajectory:
 
     num_players: int
     seed: int
+    setup_events: list[Event] = field(default_factory=list)
     steps: list[Step] = field(default_factory=list)
     final_state: dict | None = None
     status: GameStatus | None = None
@@ -42,6 +43,7 @@ class Trajectory:
     def fingerprint(self) -> str:
         """Deterministic digest used to compare replays of the same seed."""
         payload = {
+            "setup_events": [(e.text, e.visible_to) for e in self.setup_events],
             "steps": [
                 {
                     "acting": step.acting,
@@ -71,9 +73,9 @@ def run_random_selfplay(
     """Play one game with uniformly random choices, checking the contract per step."""
     rng = random.Random(seed)
     seats = seats_for(num_players)
-    state = engine.setup(num_players, seed)
+    state, setup_events = engine.setup(num_players, seed)
     _check_serializable(state, "setup() state")
-    trajectory = Trajectory(num_players=num_players, seed=seed)
+    trajectory = Trajectory(num_players=num_players, seed=seed, setup_events=setup_events)
 
     for _ in range(max_steps):
         status = engine.status(state)

@@ -42,7 +42,7 @@ def test_harness_rejects_engine_that_never_ends():
         max_players = 2
 
         def setup(self, num_players, seed):
-            return {"rng_seed": seed}
+            return {"rng_seed": seed}, []
 
         def to_act(self, state):
             return ["player_1"]

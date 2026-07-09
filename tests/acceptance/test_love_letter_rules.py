@@ -74,7 +74,7 @@ def hand(state, seat):
 
 
 def test_setup_deals_correctly_for_two_players(engine):
-    state = engine.setup(2, seed=42)
+    state, _ = engine.setup(2, seed=42)
     assert len(hand(state, "player_1")) == 2  # starter has drawn
     assert len(hand(state, "player_2")) == 1
     assert len(state["revealed_cards"]) == 3
@@ -90,7 +90,7 @@ def test_setup_is_seed_deterministic(engine):
 
 
 def test_three_player_setup_reveals_nothing(engine):
-    state = engine.setup(3, seed=1)
+    state, _ = engine.setup(3, seed=1)
     assert state["revealed_cards"] == []
     assert len(state["deck"]) == 16 - 1 - 3 - 1  # removed, three hands, starter draw
 
@@ -358,7 +358,7 @@ def test_game_ends_at_token_target(engine):
 
 
 def test_observation_hides_deck_and_other_hands(engine):
-    state = engine.setup(2, seed=3)
+    state, _ = engine.setup(2, seed=3)
     view = engine.observe(state, "player_2")
     flat = repr(view)
     assert "your_hand" in view
@@ -371,14 +371,14 @@ def test_observation_hides_deck_and_other_hands(engine):
 
 
 def test_spectator_sees_everything(engine):
-    state = engine.setup(2, seed=3)
+    state, _ = engine.setup(2, seed=3)
     view = engine.observe(state, "spectator")
     assert view["players"]["player_1"]["hand"] == state["players"]["player_1"]["hand"]
     assert view["deck"] == state["deck"]
 
 
 def test_illegal_action_rejected(engine):
-    state = engine.setup(2, seed=0)
+    state, _ = engine.setup(2, seed=0)
     bogus = Action(seat="player_1", name="play_princess", args={"card": "Princess"})
     if bogus.key() in {a.key() for a in engine.legal_actions(state, "player_1")}:
         pytest.skip("seed dealt player_1 the Princess")

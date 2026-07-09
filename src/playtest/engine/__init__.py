@@ -14,8 +14,12 @@ code-generation prompts):
     unchanged. Engines never mutate a state they are given; ``apply`` returns a
     new dict (use ``copy.deepcopy`` on entry).
 
-2.  ``setup(num_players, seed)`` returns a fully dealt initial state. All
-    randomness is derived from ``seed``. The state must contain an integer
+2.  ``setup(num_players, seed)`` returns ``(state, events)``: a fully dealt
+    initial state plus the events describing that setup — round start and any
+    face-up/publicly revealed cards. Setup events obey item 6 and are delivered
+    to seats exactly like ``apply``'s, so setup-time narration and reveals
+    become part of each seat's memory. All randomness is derived from
+    ``seed``. The state must contain an integer
     ``rng_seed`` key: whenever mid-game randomness is needed (reshuffle, dice,
     redeal), do ``rng = random.Random(state["rng_seed"])``, use it, then store
     ``new_state["rng_seed"] = rng.randrange(2**32)``. Identical seeds must
@@ -122,7 +126,7 @@ class GameEngine(Protocol):
     min_players: int
     max_players: int
 
-    def setup(self, num_players: int, seed: int) -> dict: ...
+    def setup(self, num_players: int, seed: int) -> tuple[dict, list[Event]]: ...
 
     def to_act(self, state: dict) -> list[str]: ...
 

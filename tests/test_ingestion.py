@@ -63,8 +63,8 @@ class Game:
     min_players = 2
     max_players = 2
 
-    def setup(self, num_players: int, seed: int) -> dict:
-        return {
+    def setup(self, num_players: int, seed: int) -> tuple[dict, list[Event]]:
+        state = {
             "num_players": num_players,
             "pool": 7,
             "taken": {seat: 0 for seat in seats_for(num_players)},
@@ -73,6 +73,7 @@ class Game:
             "game_over": False,
             "winners": [],
         }
+        return state, []
 
     def to_act(self, state: dict) -> list[str]:
         return [] if state["game_over"] else [state["current_player"]]
@@ -127,13 +128,13 @@ engine = load_engine_from_path(Path(__file__).parent / "engine.py")
 
 
 def test_setup():
-    state = engine.setup(2, seed=1)
+    state, _ = engine.setup(2, seed=1)
     assert state["pool"] == 7
     assert engine.to_act(state) == ["player_1"]
 
 
 def test_taking_last_token_wins():
-    state = engine.setup(2, seed=1)
+    state, _ = engine.setup(2, seed=1)
     while not engine.status(state).over:
         seat = engine.to_act(state)[0]
         state, _ = engine.apply(state, [engine.legal_actions(state, seat)[-1]])
@@ -154,7 +155,7 @@ engine = load_engine_from_path(Path(__file__).parent / "engine.py")
 
 
 def test_wrong_assumption():
-    state = engine.setup(2, seed=1)
+    state, _ = engine.setup(2, seed=1)
     assert state["pool"] == 6  # wrong on purpose: the pool starts at 7
 """
 
@@ -204,7 +205,7 @@ def test_ingest_with_stub_llm_produces_playable_engine(rulebook):
 
     engine = load_engine_from_path(artifacts.engine_path)
     assert engine.game_name == "Token Duel"
-    state = engine.setup(2, seed=0)
+    state, _ = engine.setup(2, seed=0)
     assert engine.status(state).over is False
 
 

@@ -42,7 +42,7 @@ class Game:
 
     # ------------------------------------------------------------- lifecycle
 
-    def setup(self, num_players: int, seed: int) -> dict:
+    def setup(self, num_players: int, seed: int) -> tuple[dict, list[Event]]:
         if not self.min_players <= num_players <= self.max_players:
             raise ValueError(f"Love Letter supports 2-4 players, got {num_players}")
         rng = random.Random(seed)
@@ -68,9 +68,10 @@ class Game:
             "game_over": False,
             "winners": [],
         }
-        self._start_round(state, rng, starter="player_1", events=[])
+        events: list[Event] = []
+        self._start_round(state, rng, starter="player_1", events=events)
         state["rng_seed"] = rng.randrange(2**32)
-        return state
+        return state, events
 
     def to_act(self, state: dict) -> list[str]:
         if state["game_over"]:
@@ -443,6 +444,13 @@ class Game:
         events.append(
             Event(f"Round {state['round_number']} begins. {starter} drew a card and must now play.")
         )
+        if state["revealed_cards"]:
+            events.append(
+                Event(
+                    "Setup revealed these cards face-up and out of play for the round: "
+                    + ", ".join(state["revealed_cards"])
+                )
+            )
 
     # ------------------------------------------------------------ observation
 

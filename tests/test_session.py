@@ -166,3 +166,37 @@ def test_confused_decision_is_logged():
         session_id="t",
     )
     assert any(e["type"] == "player_confusion" for e in logger.log["events"])
+
+
+def test_setup_narration_reaches_event_log_and_player_memory():
+    """Round-1 setup events must flow through the same pipeline as apply() events.
+
+    Before setup() returned events, the round-1 "Round N begins" narration was
+    appended to a throwaway list and never reached the log or any player's
+    memory, while every later round (started from apply()) did.
+    """
+    _, logger, players = run_scripted(seed=5, num_players=2)
+    logged = [
+        e["text"]
+        for e in logger.log["events"]
+        if e["type"] == "engine_event" and e["text"].startswith("Round 1 begins")
+    ]
+    assert logged, "round-1 setup narration was dropped from the event log"
+    assert any(line.startswith("Round 1 begins") for line in players["player_1"].seen_events), (
+        "round-1 setup narration never reached player_1's memory"
+    )
+
+
+def test_round_one_face_up_reveal_is_narrated_to_players():
+    """The three face-up cards in a 2-player game must be narrated from round 1,
+    not only from round 2 onward."""
+    _, logger, players = run_scripted(seed=5, num_players=2)
+    reveals = [
+        e["text"]
+        for e in logger.log["events"]
+        if e["type"] == "engine_event" and e["text"].startswith("Setup revealed")
+    ]
+    assert reveals, "face-up reveal never appeared in the event log"
+    assert any(line.startswith("Setup revealed") for line in players["player_1"].seen_events), (
+        "round-1 face-up reveal never reached player_1's memory"
+    )
