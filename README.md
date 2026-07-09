@@ -112,10 +112,16 @@ Requirements:
    no valid target, when a deck or supply runs out, when effects conflict,
    and how every tie is broken.
 5. Hidden information: state explicitly what each player can and cannot see.
-6. Self-contained text only: no page references, no "see image", no tables
+6. Core gameplay only: capture the standard, base game's single core
+   gameplay loop. Do NOT include game variants, optional/house rules,
+   expansions, advanced or alternative game modes, solo/team variants, or
+   difficulty tiers — even if the materials describe them. If the base game
+   itself has no single default (e.g. the rulebook only presents variants),
+   note that under "Clarifications" and pick the most standard one.
+7. Self-contained text only: no page references, no "see image", no tables
    that depend on layout — restate everything in plain sentences or simple
    lists. Light flavor is fine; rules completeness comes first.
-7. Do NOT invent rules. If something is genuinely unclear or missing from my
+8. Do NOT invent rules. If something is genuinely unclear or missing from my
    materials, add it under "Clarifications" as "[UNCLEAR: ...]" with the
    options you considered, and I will resolve it.
 
@@ -125,6 +131,13 @@ Output only the finished rulebook text.
 Review the result (especially any `[UNCLEAR: ...]` entries — resolve them by
 editing the text) before ingesting. The ingestion digest will also surface
 ambiguities it finds, with its chosen rulings, in `digest.md`.
+
+If you specifically want to playtest a particular variant or advanced mode, tell
+the AI to generate the rulebook for that mode instead of the base game. Keep it
+to one rulebook per game, though: each rulebook should describe a single,
+coherent set of rules. Mixing multiple modes into one file confuses both the
+engine generation and the player agents — ingest each mode as its own game
+(e.g. `--name my_game_advanced`) if you want to compare them.
 
 ## Ingestion
 
