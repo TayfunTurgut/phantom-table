@@ -23,6 +23,12 @@ class Settings(BaseSettings):
     # Safety cap on decision steps per session (a crashing ceiling, not a target).
     max_steps: int = 1000
 
+    # --- Ingestion budgets ---
+    ingest_max_engine_attempts: int = 4
+    ingest_max_test_repairs: int = 3
+    ingest_games_per_count: int = 30
+    ingest_validation_timeout_seconds: int = 600
+
 
 @lru_cache
 def get_settings() -> Settings:

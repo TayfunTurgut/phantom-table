@@ -21,6 +21,7 @@ digest and all attempts on disk.
 
 from __future__ import annotations
 
+import importlib.metadata
 import json
 import re
 import shutil
@@ -33,7 +34,11 @@ from rich.console import Console
 
 from playtest.config import get_settings
 from playtest.errors import PlaytestError
-from playtest.ingestion.codegen import generate_engine_source, generate_test_source
+from playtest.ingestion.codegen import (
+    generate_engine_source,
+    generate_test_source,
+    prompts_fingerprint,
+)
 from playtest.ingestion.digest import generate_digest, save_digest
 from playtest.ingestion.schemas import GameArtifacts
 from playtest.ingestion.validate import ValidationResult, validate_engine
@@ -64,6 +69,8 @@ def _validate_with_test_repairs(
     test_source: str,
     max_test_repairs: int,
     rounds: Iterator[int],
+    games_per_count: int,
+    timeout: int,
 ) -> tuple[ValidationResult, int]:
     """Validate; while the engine looks structurally sound but its generated
     tests fail, suspect the tests and regenerate only them.
@@ -73,7 +80,7 @@ def _validate_with_test_repairs(
     repairs = 0
     while True:
         _console.print("[cyan]Validating: contract harness + generated tests...[/cyan]")
-        result = validate_engine(config_dir)
+        result = validate_engine(config_dir, games_per_count=games_per_count, timeout=timeout)
         _archive_attempt(config_dir, next(rounds), result.feedback)
 
         if result.ok or not result.harness_ok or repairs == max_test_repairs:
@@ -99,8 +106,8 @@ def _validate_with_test_repairs(
 def ingest_rulebook(
     rulebook_path: str,
     game_name: str,
-    max_attempts: int = 4,
-    max_test_repairs: int = 3,
+    max_attempts: int | None = None,
+    max_test_repairs: int | None = None,
     client: LLMClient | None = None,
 ) -> GameArtifacts:
     # The name becomes a directory that is rmtree'd below — reject traversal first.
@@ -110,6 +117,12 @@ def ingest_rulebook(
             "(it names the config directory)"
         )
     settings = get_settings()
+    if max_attempts is None:
+        max_attempts = settings.ingest_max_engine_attempts
+    if max_test_repairs is None:
+        max_test_repairs = settings.ingest_max_test_repairs
+    games_per_count = settings.ingest_games_per_count
+    timeout = settings.ingest_validation_timeout_seconds
     if client is None:
         client = create_llm_client(settings)
 
@@ -154,7 +167,15 @@ def ingest_rulebook(
         (config_dir / "test_engine.py").write_text(test_source, encoding="utf-8")
 
         result, repairs = _validate_with_test_repairs(
-            client, config_dir, digest_json, engine_source, test_source, max_test_repairs, rounds
+            client,
+            config_dir,
+            digest_json,
+            engine_source,
+            test_source,
+            max_test_repairs,
+            rounds,
+            games_per_count,
+            timeout,
         )
         test_repairs_total += repairs
 
@@ -167,8 +188,11 @@ def ingest_rulebook(
                         "max_players": digest.max_players,
                         "digest_model": client.models["digest"],
                         "codegen_model": client.models["codegen"],
-                        "attempts": attempt,
+                        "engine_attempts": attempt,
                         "test_repairs": test_repairs_total,
+                        "games_per_count": games_per_count,
+                        "prompt_fingerprint": prompts_fingerprint(),
+                        "playtest_version": importlib.metadata.version("playtest"),
                         "ingested_at": datetime.now(UTC).isoformat(),
                     },
                     indent=2,

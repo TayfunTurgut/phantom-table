@@ -38,3 +38,27 @@ def test_settings_read_from_env(monkeypatch):
 
 def test_safety_cap_default():
     assert get_settings().max_steps >= 500
+
+
+def test_ingestion_budget_defaults():
+    settings = get_settings()
+
+    assert settings.ingest_max_engine_attempts == 4
+    assert settings.ingest_max_test_repairs == 3
+    assert settings.ingest_games_per_count == 30
+    assert settings.ingest_validation_timeout_seconds == 600
+
+
+def test_ingestion_budget_read_from_env(monkeypatch):
+    monkeypatch.setenv("INGEST_MAX_ENGINE_ATTEMPTS", "7")
+    monkeypatch.setenv("INGEST_MAX_TEST_REPAIRS", "1")
+    monkeypatch.setenv("INGEST_GAMES_PER_COUNT", "50")
+    monkeypatch.setenv("INGEST_VALIDATION_TIMEOUT_SECONDS", "120")
+    get_settings.cache_clear()
+
+    settings = get_settings()
+
+    assert settings.ingest_max_engine_attempts == 7
+    assert settings.ingest_max_test_repairs == 1
+    assert settings.ingest_games_per_count == 50
+    assert settings.ingest_validation_timeout_seconds == 120

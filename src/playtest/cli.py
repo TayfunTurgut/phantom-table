@@ -42,7 +42,12 @@ def _smoke_test() -> None:
     )
 
 
-def _run_ingest(rulebook: str, name: str) -> None:
+def _run_ingest(
+    rulebook: str,
+    name: str,
+    max_attempts: int | None = None,
+    max_test_repairs: int | None = None,
+) -> None:
     """Run the ingestion pipeline and print a summary of the generated engine."""
     from pathlib import Path
 
@@ -54,7 +59,9 @@ def _run_ingest(rulebook: str, name: str) -> None:
     if config_dir.exists():
         console.print(f"[yellow]Overwriting existing config for {name}[/yellow]")
 
-    artifacts = ingest_rulebook(rulebook, name)
+    artifacts = ingest_rulebook(
+        rulebook, name, max_attempts=max_attempts, max_test_repairs=max_test_repairs
+    )
     digest = artifacts.digest
     console.print(
         Panel(
@@ -62,7 +69,7 @@ def _run_ingest(rulebook: str, name: str) -> None:
             f"{digest.min_players}-{digest.max_players} players\n"
             f"[bold]Config dir:[/bold] {artifacts.config_dir}\n"
             f"[bold]Actions:[/bold] {', '.join(a.name for a in digest.actions)}\n"
-            f"[bold]Validated on attempt:[/bold] {artifacts.meta.get('attempts')}\n"
+            f"[bold]Validated on attempt:[/bold] {artifacts.meta.get('engine_attempts')}\n"
             f"[bold]Artifacts:[/bold] engine.py, test_engine.py, digest.md, digest.json, "
             f"player_briefing.txt, rulebook.txt, meta.json",
             title="Ingestion Complete",
@@ -103,7 +110,7 @@ def _show_config(game_name: str, truncate: bool = False) -> None:
             f"players\n"
             f"[bold]Config dir:[/bold] {artifacts.config_dir}\n"
             f"[bold]Engine:[/bold] engine.py ({engine_lines} lines)    "
-            f"[bold]Validated on attempt:[/bold] {artifacts.meta.get('attempts', '?')}\n"
+            f"[bold]Validated on attempt:[/bold] {artifacts.meta.get('engine_attempts', '?')}\n"
             f"[bold]Models:[/bold] digest={artifacts.meta.get('digest_model', '?')}, "
             f"codegen={artifacts.meta.get('codegen_model', '?')}",
             title="Game Config",
@@ -248,6 +255,18 @@ def main() -> None:
     ingest_parser.add_argument(
         "--name", type=str, required=True, help="Game name (used as config directory name)"
     )
+    ingest_parser.add_argument(
+        "--max-attempts",
+        type=int,
+        default=None,
+        help="Max engine generation attempts (default: from settings)",
+    )
+    ingest_parser.add_argument(
+        "--max-test-repairs",
+        type=int,
+        default=None,
+        help="Max test-only repair rounds per attempt (default: from settings)",
+    )
 
     # Subcommand: show-config
     show_parser = subparsers.add_parser(
@@ -347,7 +366,7 @@ def main() -> None:
     if args.command == "smoke-test":
         _smoke_test()
     elif args.command == "ingest":
-        _run_ingest(args.rulebook, args.name)
+        _run_ingest(args.rulebook, args.name, args.max_attempts, args.max_test_repairs)
     elif args.command == "show-config":
         _show_config(args.game, args.truncate)
     elif args.command == "play":

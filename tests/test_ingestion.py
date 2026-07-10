@@ -7,6 +7,7 @@ subprocess validation (generated pytest suite + contract harness), the repair
 loop, and artifact persistence.
 """
 
+import importlib.metadata
 from pathlib import Path
 
 import pytest
@@ -14,7 +15,8 @@ import pytest
 from playtest.config import get_settings
 from playtest.engine.loader import load_engine_from_path
 from playtest.errors import PlaytestError
-from playtest.ingestion.codegen import check_engine_source, extract_python
+from playtest.ingestion import codegen, pipeline
+from playtest.ingestion.codegen import check_engine_source, extract_python, prompts_fingerprint
 from playtest.ingestion.digest import digest_to_markdown, digest_to_player_briefing
 from playtest.ingestion.pipeline import ingest_rulebook
 from playtest.ingestion.schemas import GameArtifacts, GameDigest
@@ -191,7 +193,7 @@ def test_ingest_with_stub_llm_produces_playable_engine(rulebook):
     client = StubLLMClient([DIGEST.model_dump_json(), _fenced(GOOD_ENGINE), _fenced(GOOD_TESTS)])
     artifacts = ingest_rulebook(rulebook, "token_duel", client=client)
 
-    assert artifacts.meta["attempts"] == 1
+    assert artifacts.meta["engine_attempts"] == 1
     for name in (
         "engine.py",
         "test_engine.py",
@@ -221,7 +223,7 @@ def test_wrong_tests_trigger_test_only_repair(rulebook):
     )
     artifacts = ingest_rulebook(rulebook, "token_duel", client=client)
 
-    assert artifacts.meta["attempts"] == 1  # the engine was never regenerated
+    assert artifacts.meta["engine_attempts"] == 1  # the engine was never regenerated
     assert artifacts.meta["test_repairs"] == 1
     # The test-repair request carried the "tests may be wrong" routing hint.
     repair_request = client.calls[-1]["messages"][-1]["content"]
@@ -245,7 +247,7 @@ def test_harness_failure_routes_to_engine_repair(rulebook):
     )
     artifacts = ingest_rulebook(rulebook, "token_duel", client=client)
 
-    assert artifacts.meta["attempts"] == 2
+    assert artifacts.meta["engine_attempts"] == 2
     # The engine-repair request carried the harness traceback, not test noise.
     repair_request = client.calls[3]["messages"][-1]["content"]
     assert "contract harness" in repair_request
@@ -262,7 +264,7 @@ def test_repair_loop_recovers_from_broken_codegen(rulebook):
         ]
     )
     artifacts = ingest_rulebook(rulebook, "token_duel", client=client)
-    assert artifacts.meta["attempts"] == 2
+    assert artifacts.meta["engine_attempts"] == 2
 
 
 def test_ingest_rejects_unsafe_game_name(rulebook, tmp_path):
@@ -352,3 +354,54 @@ def test_clip_keeps_head_and_tail_of_oversized_output():
     assert clipped.endswith("-TAIL")
     assert "chars omitted" in clipped
     assert len(clipped) < 700
+
+
+def test_meta_json_has_provenance_fields(rulebook):
+    client = StubLLMClient([DIGEST.model_dump_json(), _fenced(GOOD_ENGINE), _fenced(GOOD_TESTS)])
+    artifacts = ingest_rulebook(rulebook, "token_duel", client=client)
+
+    assert artifacts.meta["engine_attempts"] == 1
+    assert artifacts.meta["games_per_count"] == get_settings().ingest_games_per_count
+    assert artifacts.meta["prompt_fingerprint"] == prompts_fingerprint()
+    assert artifacts.meta["playtest_version"] == importlib.metadata.version("playtest")
+
+
+def test_prompt_fingerprint_changes_when_prompt_constant_changes(monkeypatch):
+    before = prompts_fingerprint()
+    monkeypatch.setattr(codegen, "_ENGINE_SYSTEM_PROMPT", codegen._ENGINE_SYSTEM_PROMPT + " ")
+    after = prompts_fingerprint()
+
+    assert before != after
+
+
+def test_ingest_rulebook_explicit_budgets_are_respected(rulebook):
+    """Explicit max_attempts/max_test_repairs still work regardless of settings."""
+    client = StubLLMClient([DIGEST.model_dump_json()] + [_fenced(BROKEN_ENGINE)] * 2)
+    with pytest.raises(PlaytestError, match="ingestion failed after 2 attempts"):
+        ingest_rulebook(rulebook, "token_duel", max_attempts=2, client=client)
+
+
+def test_ingest_rulebook_none_budgets_fall_back_to_settings(monkeypatch, rulebook):
+    """max_attempts=None (the default) reads the budget from settings."""
+    monkeypatch.setattr(get_settings(), "ingest_max_engine_attempts", 2)
+    client = StubLLMClient([DIGEST.model_dump_json()] + [_fenced(BROKEN_ENGINE)] * 2)
+    with pytest.raises(PlaytestError, match="ingestion failed after 2 attempts"):
+        ingest_rulebook(rulebook, "token_duel", client=client)
+
+
+def test_ingest_rulebook_threads_games_per_count_and_timeout(monkeypatch, rulebook):
+    """validate_engine is called with the settings-derived games_per_count/timeout."""
+    monkeypatch.setattr(get_settings(), "ingest_games_per_count", 5)
+    monkeypatch.setattr(get_settings(), "ingest_validation_timeout_seconds", 42)
+    seen: dict = {}
+    real_validate_engine = pipeline.validate_engine
+
+    def _spy_validate_engine(config_dir, **kwargs):
+        seen.update(kwargs)
+        return real_validate_engine(config_dir, **kwargs)
+
+    monkeypatch.setattr(pipeline, "validate_engine", _spy_validate_engine)
+    client = StubLLMClient([DIGEST.model_dump_json(), _fenced(GOOD_ENGINE), _fenced(GOOD_TESTS)])
+    ingest_rulebook(rulebook, "token_duel", client=client)
+
+    assert seen == {"games_per_count": 5, "timeout": 42}

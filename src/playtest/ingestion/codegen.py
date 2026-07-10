@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import inspect
 import re
 
@@ -286,3 +287,23 @@ def generate_test_source(
     source = extract_python(raw)
     check_engine_source(source, extra_allowed=_TEST_ALLOWED_EXTRA)
     return source
+
+
+def prompts_fingerprint() -> str:
+    """A sha256 digest over every prompt/exemplar the codegen stages depend on.
+
+    Recorded in meta.json for provenance: any edit to a prompt constant or the
+    reference engine used as an exemplar changes this fingerprint."""
+    from playtest.ingestion.digest import _SYSTEM_PROMPT as _DIGEST_SYSTEM_PROMPT
+
+    parts = [
+        _ENGINE_SYSTEM_PROMPT,
+        _ENGINE_USER_PROMPT,
+        _REPAIR_SECTION,
+        _TEST_SYSTEM_PROMPT,
+        _TEST_USER_PROMPT,
+        _TEST_REPAIR_SECTION,
+        _DIGEST_SYSTEM_PROMPT,
+        _reference_engine_source(),
+    ]
+    return hashlib.sha256("".join(parts).encode("utf-8")).hexdigest()
