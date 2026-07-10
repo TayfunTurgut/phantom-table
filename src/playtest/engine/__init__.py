@@ -37,7 +37,14 @@ code-generation prompts):
     the rules allow "do nothing", enumerate an explicit pass action. The list
     is deterministic and stable for a given state (no randomness, no
     reordering). Each action's ``label`` is a one-line human-readable
-    description shown to the choosing agent.
+    description shown to the choosing agent. Keep the menu choosable: when
+    fully binding one decision would enumerate more than roughly 50 actions
+    (open bid amounts, free placement, multi-leg movement), split it into
+    consecutive smaller decisions — record the partial choice in state and
+    stop, so ``to_act`` returns the same seat again and ``legal_actions``
+    offers the next part (the amount, then the destination, then the next
+    leg). Each stage is an ordinary decision point; emit the events
+    describing the completed whole when its final stage resolves.
 
 5.  ``apply(state, actions)`` takes exactly one chosen action per seat in
     ``to_act(state)`` and resolves them. It validates each action is in that
@@ -45,7 +52,14 @@ code-generation prompts):
     auto-advances through every step that requires no human decision — forced
     draws, automa turns, chance reveals, round scoring, redeals — stopping only
     at the next decision point or the end of the game. It returns
-    ``(new_state, events)``.
+    ``(new_state, events)``. A "may respond" window (block, challenge, Nope,
+    instant) is a decision point, not part of resolution: store the announced
+    action as pending in state and stop, so ``to_act`` returns the eligible
+    responder(s) and ``legal_actions`` offers each reaction plus an explicit
+    decline. Resolve or cancel the pending action only when the window closes
+    — every responder declined, or a reaction resolved. Offer the window to
+    every seat the rules permit to respond, never only to seats whose hidden
+    cards make responding useful: being asked is itself information.
 
 6.  Events are the factual record of what happened, in past tense, in
     resolution order ("player_2 played Guard, guessing player_1 holds Baron —
