@@ -15,18 +15,35 @@ from rich.panel import Panel
 if TYPE_CHECKING:
     from playtest.agents.player import Decision
 
-PLAYER_COLORS = {
-    "player_1": "cyan",
-    "player_2": "magenta",
-    "player_3": "green",
-    "player_4": "yellow",
-    "player_5": "red",
-    "player_6": "blue",
-}
+PLAYER_COLORS = (
+    "cyan",
+    "magenta",
+    "green",
+    "yellow",
+    "red",
+    "blue",
+    "bright_cyan",
+    "bright_magenta",
+    "bright_green",
+    "bright_yellow",
+    "bright_red",
+    "bright_blue",
+)
 
 
 def _color(seat: str) -> str:
-    return PLAYER_COLORS.get(seat, "white")
+    """Get the color for a seat, cycling through the palette if needed.
+
+    Parses player_N format and uses modulo to cycle through the palette.
+    Non-player_N seats get white as fallback.
+    """
+    if seat.startswith("player_"):
+        try:
+            player_num = int(seat.split("_")[1])
+            return PLAYER_COLORS[(player_num - 1) % len(PLAYER_COLORS)]
+        except (IndexError, ValueError):
+            pass
+    return "white"
 
 
 class GameObserver:
