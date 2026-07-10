@@ -7,6 +7,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     llm_timeout_seconds: int = 900
+    llm_retry_attempts: int = 3
+    llm_retry_backoff_seconds: float = 2.0
 
     # --- Claude CLI backend (headless `claude -p`, billed to the Claude subscription) ---
     claude_cli_path: str = "claude"

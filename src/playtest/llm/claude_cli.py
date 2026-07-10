@@ -10,8 +10,10 @@ the CLI acts as a pure completion endpoint; JSON schemas are hard-enforced via
 from __future__ import annotations
 
 import json
+import logging
 import os
 import subprocess
+import time
 from typing import TYPE_CHECKING
 
 from playtest.errors import PlaytestError
@@ -19,6 +21,8 @@ from playtest.llm import LLMClient
 
 if TYPE_CHECKING:
     from playtest.config import Settings
+
+_log = logging.getLogger(__name__)
 
 
 def _flatten(messages: list[dict]) -> tuple[str, str]:
@@ -42,8 +46,41 @@ class ClaudeCLIClient(LLMClient):
         self._cli_path = settings.claude_cli_path
         self._oauth_token = settings.claude_code_oauth_token
         self._timeout = settings.llm_timeout_seconds
+        self._retry_attempts = settings.llm_retry_attempts
+        self._retry_backoff = settings.llm_retry_backoff_seconds
 
     def complete(
+        self,
+        messages: list[dict],
+        *,
+        role: str,
+        json_schema: dict | None = None,
+    ) -> str:
+        """Run a completion, retrying transient ``PlaytestError`` failures.
+
+        ``claude -p`` is a stateless completion endpoint, so a timeout, nonzero
+        exit, non-JSON envelope, or ``is_error`` envelope are all treated as
+        transient and retried up to ``llm_retry_attempts`` times before the
+        last error is re-raised.
+        """
+        attempts = max(1, self._retry_attempts)
+        for attempt in range(1, attempts + 1):
+            try:
+                return self._run_once(messages, role=role, json_schema=json_schema)
+            except PlaytestError as exc:
+                if attempt == attempts:
+                    raise
+                _log.warning(
+                    "claude -p call failed (role=%s, attempt %d/%d), retrying: %s",
+                    role,
+                    attempt,
+                    attempts,
+                    exc,
+                )
+                time.sleep(self._retry_backoff * attempt)
+        raise AssertionError("unreachable")  # attempts >= 1 always returns or raises above
+
+    def _run_once(
         self,
         messages: list[dict],
         *,

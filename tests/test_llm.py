@@ -6,6 +6,7 @@ its argv/env and prints a canned --output-format json envelope.
 
 import json
 import stat
+import subprocess
 
 import pytest
 
@@ -34,11 +35,14 @@ def fake_claude(tmp_path, envelope: dict, exit_code: int = 0) -> tuple[str, str]
     return str(script), str(capture)
 
 
-def cli_settings(script: str) -> Settings:
+def cli_settings(script: str, llm_retry_attempts: int = 1) -> Settings:
+    # Most cases here exercise a single `claude -p` invocation; default to no
+    # retries so a deterministic single failure doesn't sleep for real.
     return Settings(
         _env_file=None,
         claude_cli_path=script,
         claude_code_oauth_token="tok-test-123",
+        llm_retry_attempts=llm_retry_attempts,
     )
 
 
@@ -120,6 +124,55 @@ def test_claude_cli_error_envelope_raises(tmp_path):
     client = ClaudeCLIClient(cli_settings(script))
     with pytest.raises(PlaytestError, match="error_during_execution"):
         client.complete(MESSAGES, role="player")
+
+
+# ----------------------------------------------------------- retry
+
+
+class _FakeProc:
+    def __init__(self, returncode: int, stdout: str, stderr: str = "") -> None:
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+
+
+def test_complete_retries_transient_failure_then_succeeds(monkeypatch, caplog):
+    calls: list[list[str]] = []
+
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        if len(calls) < 3:
+            return _FakeProc(1, "", "transient boom")
+        return _FakeProc(0, json.dumps({"is_error": False, "result": "recovered"}))
+
+    monkeypatch.setattr("playtest.llm.claude_cli.subprocess.run", fake_run)
+    monkeypatch.setattr("playtest.llm.claude_cli.time.sleep", lambda _seconds: None)
+
+    client = ClaudeCLIClient(cli_settings("unused", llm_retry_attempts=3))
+    with caplog.at_level("WARNING", logger="playtest.llm.claude_cli"):
+        result = client.complete(MESSAGES, role="player")
+
+    assert result == "recovered"
+    assert len(calls) == 3
+    assert sum("retrying" in r.message for r in caplog.records) == 2
+
+
+def test_complete_exhausts_retries_and_reraises(monkeypatch):
+    calls: list[list[str]] = []
+
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        raise subprocess.TimeoutExpired(cmd=command, timeout=1)
+
+    monkeypatch.setattr("playtest.llm.claude_cli.subprocess.run", fake_run)
+    monkeypatch.setattr("playtest.llm.claude_cli.time.sleep", lambda _seconds: None)
+
+    settings = cli_settings("unused", llm_retry_attempts=3)
+    client = ClaudeCLIClient(settings)
+    with pytest.raises(PlaytestError, match="timed out"):
+        client.complete(MESSAGES, role="player")
+
+    assert len(calls) == settings.llm_retry_attempts
 
 
 # ----------------------------------------------------------- factory

@@ -134,31 +134,23 @@ def test_archetype_overlay_lands_in_system_prompt():
     assert decision.action == LEGAL[0]
 
 
-class FlakyClient(LLMClient):
-    """Raises PlaytestError on the first ``fail_times`` calls, then succeeds."""
+class AlwaysFailingClient(LLMClient):
+    """Raises PlaytestError on every call (retry now lives in the LLM client)."""
 
-    def __init__(self, fail_times):
+    def __init__(self):
         self.models = {role: "stub-model" for role in ROLES}
-        self.fail_times = fail_times
         self.calls = 0
 
     def complete(self, messages, *, role, json_schema=None):
         self.calls += 1
-        if self.calls <= self.fail_times:
-            raise PlaytestError("structured-output failure")
-        return _choice(0, notes="recovered")
+        raise PlaytestError("structured-output failure")
 
 
-def test_turn_retries_past_transient_structured_output_failure():
-    client = FlakyClient(fail_times=2)  # fails twice, succeeds within 3 attempts
-    agent = PlayerAgent("player_1", client, game_name="Test Game")
-    decision = agent.choose({}, LEGAL, [])
-    assert decision.action == LEGAL[0]
-    assert client.calls == 3
-
-
-def test_turn_gives_up_and_reraises_after_max_attempts():
-    client = FlakyClient(fail_times=99)
+def test_persistent_llm_failure_propagates_without_player_level_retry():
+    # The client is responsible for retrying transient failures; once it gives
+    # up and raises, the player agent must not retry the turn itself.
+    client = AlwaysFailingClient()
     agent = PlayerAgent("player_1", client, game_name="Test Game")
     with pytest.raises(PlaytestError):
         agent.choose({}, LEGAL, [])
+    assert client.calls == 1
