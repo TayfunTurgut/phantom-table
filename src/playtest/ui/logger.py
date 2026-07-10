@@ -35,7 +35,7 @@ class GameLogger:
         """Append a timestamped event and opportunistically fill header fields."""
         self.log["events"].append({"type": event_type, "timestamp": _now(), **data})
 
-        if event_type == "game_start":
+        if event_type in ("game_start", "game_resume"):
             self.log["session_id"] = data.get("session_id")
             self.log["seed"] = data.get("seed")
             self.log["game_name"] = data.get("game_name")

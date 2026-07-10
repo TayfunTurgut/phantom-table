@@ -6,6 +6,8 @@ import pytest
 
 from playtest.agents.player import PlayerAgent
 from playtest.engine import Action
+from playtest.errors import PlaytestError
+from playtest.llm import ROLES, LLMClient
 
 from .stubs import StubLLMClient
 
@@ -130,3 +132,33 @@ def test_archetype_overlay_lands_in_system_prompt():
     assert "aggressive player" in agent.system_prompt
     decision = agent.choose({}, LEGAL, [])
     assert decision.action == LEGAL[0]
+
+
+class FlakyClient(LLMClient):
+    """Raises PlaytestError on the first ``fail_times`` calls, then succeeds."""
+
+    def __init__(self, fail_times):
+        self.models = {role: "stub-model" for role in ROLES}
+        self.fail_times = fail_times
+        self.calls = 0
+
+    def complete(self, messages, *, role, json_schema=None):
+        self.calls += 1
+        if self.calls <= self.fail_times:
+            raise PlaytestError("structured-output failure")
+        return _choice(0, notes="recovered")
+
+
+def test_turn_retries_past_transient_structured_output_failure():
+    client = FlakyClient(fail_times=2)  # fails twice, succeeds within 3 attempts
+    agent = PlayerAgent("player_1", client, game_name="Test Game")
+    decision = agent.choose({}, LEGAL, [])
+    assert decision.action == LEGAL[0]
+    assert client.calls == 3
+
+
+def test_turn_gives_up_and_reraises_after_max_attempts():
+    client = FlakyClient(fail_times=99)
+    agent = PlayerAgent("player_1", client, game_name="Test Game")
+    with pytest.raises(PlaytestError):
+        agent.choose({}, LEGAL, [])

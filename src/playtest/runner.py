@@ -9,6 +9,7 @@ from rich.console import Console
 from rich.panel import Panel
 
 from playtest.agents.player import PlayerAgent
+from playtest.checkpoint import load_checkpoint
 from playtest.config import get_settings
 from playtest.engine import GameEngine, seats_for
 from playtest.engine.loader import load_engine
@@ -83,6 +84,7 @@ def run_game(
     log_file: str | None = None,
     verbose: bool = False,
     archetypes: list[str] | None = None,
+    checkpoint_path: str | None = None,
 ) -> dict:
     console = Console()
     settings = get_settings()
@@ -124,6 +126,64 @@ def run_game(
             seed=seed,
             session_id=session_id,
             max_steps=settings.max_steps,
+            checkpoint_path=checkpoint_path,
+            game_ref=game_ref,
+            archetypes=archetypes,
+        )
+    finally:
+        if log_file:
+            logger.save(log_file)
+            console.print(f"[green]Game log written to[/green] {log_file}")
+
+    summary = logger.get_summary()
+    console.print(_summary_panel(summary))
+    return {"final_state": result["final_state"], "summary": summary}
+
+
+def resume_game(
+    checkpoint_path: str,
+    log_file: str | None = None,
+    verbose: bool = False,
+) -> dict:
+    """Continue a game from a per-turn checkpoint written by ``run_session``.
+
+    Rebuilds the engine and players from the checkpoint, restores each seat's
+    notebook, and re-enters the turn loop at the checkpointed step. The resumed
+    run keeps checkpointing to the same file, so it too can be resumed.
+    """
+    console = Console()
+    settings = get_settings()
+
+    cp = load_checkpoint(checkpoint_path)
+    engine, config_dir = resolve_game(cp.game_ref)
+
+    client = create_llm_client(settings)
+    players = _make_players(engine, config_dir, client, cp.num_players, cp.archetypes)
+    for seat, agent in players.items():
+        agent.notes = cp.notebooks.get(seat, "")
+
+    observer = GameObserver(console=console, verbose=verbose)
+    logger = GameLogger()
+    logger.set_run_metadata(archetypes=cp.archetypes)
+
+    console.print(
+        f"[cyan]Resuming {engine.game_name} from step {cp.step}[/cyan] "
+        f"(checkpoint {checkpoint_path})"
+    )
+    try:
+        result = run_session(
+            engine,
+            players,
+            observer,
+            logger,
+            num_players=cp.num_players,
+            seed=cp.seed,
+            session_id=cp.session_id,
+            max_steps=settings.max_steps,
+            checkpoint_path=checkpoint_path,
+            game_ref=cp.game_ref,
+            archetypes=cp.archetypes,
+            resume=cp,
         )
     finally:
         if log_file:

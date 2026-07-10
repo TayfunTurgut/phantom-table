@@ -134,6 +134,7 @@ def _run_play(
     log_file: str | None,
     verbose: bool,
     archetypes: list[str] | None,
+    checkpoint_path: str | None,
 ) -> None:
     """Run a full playtest session via the plain turn-loop driver."""
     from playtest.runner import run_game
@@ -145,7 +146,15 @@ def _run_play(
         log_file=log_file,
         verbose=verbose,
         archetypes=archetypes,
+        checkpoint_path=checkpoint_path,
     )
+
+
+def _run_resume(checkpoint_path: str, log_file: str | None, verbose: bool) -> None:
+    """Continue a game from a per-turn checkpoint."""
+    from playtest.runner import resume_game
+
+    resume_game(checkpoint_path, log_file=log_file, verbose=verbose)
 
 
 def _parse_archetypes(value: str | None) -> list[str] | None:
@@ -275,6 +284,26 @@ def main() -> None:
         default=None,
         help="Comma-separated archetype per player (e.g. aggressive,cautious,default)",
     )
+    play_parser.add_argument(
+        "--checkpoint",
+        type=str,
+        default=None,
+        help="Path to write a per-turn resume checkpoint (enables `resume`)",
+    )
+
+    # Subcommand: resume
+    resume_parser = subparsers.add_parser(
+        "resume", help="Continue a game from a per-turn checkpoint"
+    )
+    resume_parser.add_argument(
+        "--checkpoint", type=str, required=True, help="Path to a checkpoint JSON"
+    )
+    resume_parser.add_argument(
+        "--log-file", type=str, default=None, help="Path to save game log JSON"
+    )
+    resume_parser.add_argument(
+        "--verbose", action="store_true", help="Show players' private reasoning and notebooks"
+    )
 
     # Subcommand: bulk
     bulk_parser = subparsers.add_parser(
@@ -329,7 +358,10 @@ def main() -> None:
             args.log_file,
             args.verbose,
             _parse_archetypes(args.archetypes),
+            args.checkpoint,
         )
+    elif args.command == "resume":
+        _run_resume(args.checkpoint, args.log_file, args.verbose)
     elif args.command == "bulk":
         _run_bulk(
             args.game,

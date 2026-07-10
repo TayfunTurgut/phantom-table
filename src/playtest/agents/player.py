@@ -17,9 +17,16 @@ from dataclasses import dataclass
 
 from playtest.agents.archetypes import apply_archetype
 from playtest.engine import Action
+from playtest.errors import PlaytestError
 from playtest.llm import LLMClient
 
 _log = logging.getLogger(__name__)
+
+# A player turn is a single structured LLM call; the `claude` CLI occasionally
+# fails to produce valid structured output (exit 1, surfaced as PlaytestError).
+# That failure is non-deterministic, so retrying the same turn a few times keeps
+# one transient hiccup from ending the whole game.
+_MAX_TURN_ATTEMPTS = 3
 
 _CHOICE_SCHEMA = {
     "name": "choose_action",
@@ -172,7 +179,21 @@ class PlayerAgent:
         )
 
     def _complete(self, messages: list[dict]) -> dict:
-        raw = self.client.complete(messages, role="player", json_schema=_CHOICE_SCHEMA)
+        raw = ""
+        for attempt in range(1, _MAX_TURN_ATTEMPTS + 1):
+            try:
+                raw = self.client.complete(messages, role="player", json_schema=_CHOICE_SCHEMA)
+                break
+            except PlaytestError as exc:
+                if attempt == _MAX_TURN_ATTEMPTS:
+                    raise
+                _log.warning(
+                    "%s turn LLM call failed (attempt %d/%d), retrying: %s",
+                    self.player_id,
+                    attempt,
+                    _MAX_TURN_ATTEMPTS,
+                    exc,
+                )
         try:
             parsed = json.loads(raw)
         except json.JSONDecodeError:

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Protocol
 
+from playtest.checkpoint import Checkpoint, write_checkpoint
 from playtest.engine import SPECTATOR, GameEngine, seats_for
 from playtest.errors import EngineCrash, PlaytestError
 
@@ -51,14 +52,38 @@ def run_session(
     seed: int,
     session_id: str,
     max_steps: int = 1000,
+    checkpoint_path: str | None = None,
+    game_ref: str | None = None,
+    archetypes: list[str] | None = None,
+    resume: Checkpoint | None = None,
 ) -> dict[str, Any]:
-    """Run one full game. Returns final state, status, and step count."""
+    """Run one full game. Returns final state, status, and step count.
+
+    When ``checkpoint_path`` is set, a resumable snapshot (raw state + per-seat
+    event buffers + notebooks) is written at the top of every turn, so a crash
+    during a decision leaves a checkpoint for exactly the turn that failed.
+
+    When ``resume`` is given, ``engine.setup`` is skipped and the loop re-enters
+    at the checkpoint's step with its state/buffers/notebooks (the caller is
+    responsible for restoring each player's notebook onto the agent).
+    """
     seats = seats_for(num_players)
     if set(players) != set(seats):
         raise PlaytestError(f"players must be exactly {seats}, got {sorted(players)}")
 
-    state, setup_events = engine.setup(num_players, seed)
-    buffers: dict[str, list[str]] = {seat: [] for seat in seats}
+    buffers: dict[str, list[str]]
+    notebooks: dict[str, str]
+    if resume is None:
+        state, setup_events = engine.setup(num_players, seed)
+        buffers = {seat: [] for seat in seats}
+        notebooks = {seat: "" for seat in seats}
+        start_step = 1
+    else:
+        state = resume.state
+        setup_events = []
+        buffers = {seat: list(resume.buffers.get(seat, [])) for seat in seats}
+        notebooks = {seat: resume.notebooks.get(seat, "") for seat in seats}
+        start_step = resume.step
 
     def emit(events: list[Event], step: int) -> None:
         """Route engine events to seat memory, the log, and the observer."""
@@ -73,22 +98,40 @@ def run_session(
         observer.on_events([e.text for e in events if e.visible_to is None])
 
     logger.log_event(
-        "game_start",
+        "game_resume" if resume is not None else "game_start",
         {
             "session_id": session_id,
             "seed": seed,
             "game_name": engine.game_name,
             "num_players": num_players,
+            "resumed_at_step": start_step if resume is not None else None,
             "state": engine.observe(state, SPECTATOR),
         },
     )
     observer.on_game_start(engine.game_name, seats)
     emit(setup_events, step=0)
 
-    for step in range(1, max_steps + 1):
+    for step in range(start_step, max_steps + 1):
         status = engine.status(state)
         if status.over:
             break
+
+        if checkpoint_path is not None:
+            write_checkpoint(
+                checkpoint_path,
+                Checkpoint(
+                    game_ref=game_ref or "",
+                    num_players=num_players,
+                    seed=seed,
+                    archetypes=list(archetypes) if archetypes is not None else [],
+                    session_id=session_id,
+                    step=step,
+                    state=state,
+                    buffers=buffers,
+                    notebooks=notebooks,
+                ),
+            )
+
         acting = engine.to_act(state)
         observer.on_step_start(step, acting)
 
@@ -98,6 +141,7 @@ def run_session(
             legal = engine.legal_actions(state, seat)
             decision = players[seat].choose(observation, legal, buffers[seat])
             buffers[seat].clear()
+            notebooks[seat] = decision.notes
             decisions.append(decision)
             observer.on_decision(seat, decision)
             logger.log_event(

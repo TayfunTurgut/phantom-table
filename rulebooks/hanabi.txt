@@ -1,0 +1,181 @@
+HANABI — COMPLETE RULEBOOK
+
+A cooperative firework-building game by Antoine Bauza. 2–5 players, ages 8+. ©2013 R&R Games Inc. Illustrations by Albertine Ralenti; graphic design by Jenn Vargas; English rules editors Frank DiLorenzo and Anthony Rubbo.
+
+OVERVIEW
+
+Hanabi is a fully cooperative game: the players do not compete against one another but work together toward a single common goal, and they share one team score. The players take the role of absent-minded firework manufacturers who have mixed up the powders, fuses, and rockets for a display that is about to begin. Working together, they must assemble 5 fireworks — one White, one Red, one Blue, one Yellow, and one Green — where each firework is a run of cards of a single color built in rising numerical order: 1, then 2, then 3, then 4, then 5.
+
+The defining twist: you cannot see the fronts of your own cards. You can see everyone else's cards but not your own, so the whole team depends on carefully rationed pieces of information to know what each player is holding.
+
+COMPONENTS
+
+Hanabi cards. The physical box contains 60 cards divided into 6 suits, but this ruleset uses only the 5 standard colors — White, Red, Blue, Yellow, and Green — for a 50-card deck. (The box also includes a sixth, Multicolor, suit; it is not used in these rules and is left in the box.)
+
+Each of the five colors contains exactly the same distribution of 10 cards:
+
+• Value 1 — ×3 (three 1s)
+• Value 2 — ×2 (two 2s)
+• Value 3 — ×2 (two 3s)
+• Value 4 — ×2 (two 4s)
+• Value 5 — ×1 (one 5)
+
+So each color = 10 cards, and the deck = 50 cards.
+
+Full per-color/value tally:
+
+• White: 1 ×3, 2 ×2, 3 ×2, 4 ×2, 5 ×1
+• Red: 1 ×3, 2 ×2, 3 ×2, 4 ×2, 5 ×1
+• Blue: 1 ×3, 2 ×2, 3 ×2, 4 ×2, 5 ×1
+• Yellow: 1 ×3, 2 ×2, 3 ×2, 4 ×2, 5 ×1
+• Green: 1 ×3, 2 ×2, 3 ×2, 4 ×2, 5 ×1
+
+Card faces (fronts) show a color and a number. Card backs are plain black-and-white and carry no information, so a player holding cards facing outward reveals nothing to themselves.
+
+Key consequence of the distribution: there are multiple copies of the 1s, 2s, 3s, and 4s, but only a single 5 of each color. Losing (discarding or misplaying) the only 5 of a color permanently caps that firework at 4.
+
+Blue Clock tokens — ×8. These represent the team's supply of "information" / hint credits. They move back and forth between the table and the box lid.
+
+Black Fuse tokens — ×4. These represent the burning fuse / countdown to disaster. They are printed as a stack: fuses of decreasing length on top and an explosion on the bottom. Three of the four are "fuse" faces and one (the bottom) is the "explosion" that ends the game.
+
+Box lid. Used during play as a holding area for tokens that have been moved off the table (blue tokens spent on information, and fuse tokens lost to misfires).
+
+SETUP
+
+Setup is identical for all player counts except for the number of cards dealt to each hand. Do the following:
+
+1. Place all 8 Blue Clock tokens face up on the table. The whole team's information supply starts full.
+2. Stack the 4 Black Fuse tokens in a pile near the table, arranged with the longest fuse on top and the explosion on the bottom. These are not placed in the lid at the start — they are only moved to the lid when a misfire occurs.
+3. Shuffle the 50-card deck (the five standard colors) and place it face down as the draw deck. Leave space beside it for a face-up discard pile.
+4. Deal each player a starting hand, dealt face down and picked up without looking at the fronts:
+   • 2 or 3 players: deal 5 cards to each player.
+   • 4 or 5 players: deal 4 cards to each player.
+5. Each player holds their hand so the fronts face outward — toward the other players — and so that they themselves see only the plain backs.
+
+Crucial rule (setup and throughout): Players must never look at the fronts of their own cards. You pick up your hand so the other players can see the colored, numbered fronts while you see only the black-and-white backs. Looking at your own cards' fronts at any point during the game is forbidden.
+
+Starting player and turn order: The player wearing the most colorful clothing takes the first turn. Play then proceeds clockwise.
+
+HOW A TURN WORKS
+
+On your turn you must perform exactly one of the three actions below — one and only one. You may not skip your turn.
+
+1. Give one piece of information.
+2. Discard a card.
+3. Play a card.
+
+While it is a player's turn, teammates may not comment on, hint at, or try to influence that player's decision (see Hidden Information for the strict-communication rule and its optional relaxations).
+
+After a Discard or a Play, the acting player immediately draws one new card from the deck and adds it to their hand without looking at it (unless the deck is empty — see End of Game). Giving information does not involve drawing.
+
+ACTIONS AND CARD EFFECTS
+
+Action 1 — Give a piece of information
+
+To give information, take one Blue Clock token from the table and place it in the box lid (this "spends" a hint credit). Then tell one teammate something true about the cards in that teammate's hand.
+
+You must choose one of the following two kinds of information, and you may give only that one kind on this turn:
+
+• A. One specific color (and only one). Examples: "You have 1 red card," or "You have 2 green cards," or equivalently "these cards are blue" / "you have a red card here" while pointing.
+• B. One specific value (and only one). Examples: "You have 1 card with a value of 5," or "You have 2 cards with a value of 1."
+
+Rules that constrain the information:
+
+• You must physically point to the exact card(s) the information refers to.
+• You must give complete information. If the chosen color or value matches more than one card in that hand, you must point to every matching card, not just some. Example: if a teammate has two green cards and you announce green, you must point to both green cards.
+• You may not state that a player has "zero" of something, because there would be no card to point to. Information can only be given about a color or value the teammate actually holds at least one of.
+• Information is always about a single named teammate's hand; you cannot spread one hint across two players.
+
+No valid target / restriction: This action cannot be performed if there are no Blue Clock tokens left on the table (i.e., all 8 are already in the lid). In that case you must choose a different action instead. You also cannot "give" a color or value the target does not have, since no card could be pointed to.
+
+The information is not written down — it is spoken and pointed to once. A player who receives information may rearrange the cards in their own hand (moving indicated cards left, right, up, or down) to help remember what they have learned.
+
+Action 2 — Discard a card
+
+Discarding returns one Blue Clock token from the box lid to the table (refilling one hint credit). Then:
+
+1. Announce clearly that you are discarding.
+2. Place one card from your hand face up onto the discard pile next to the deck.
+3. Draw a new card from the deck and add it to your hand without looking at it.
+
+Restriction: You cannot discard if all Blue Clock tokens are already on the table (i.e., the lid is empty of blue tokens, so there is nothing to return). In that case you must choose a different action instead.
+
+Note on discards: The discard pile is face up and may be examined by anyone at any time. Because there are multiple copies of the 1–4 cards, discarding one copy does not necessarily doom a firework — but discarding the sole copy of a needed card (most dangerously the single 5 of a color) can make that firework impossible to complete.
+
+Action 3 — Play a card
+
+Take one card from your hand and play it to the table. One of two things happens:
+
+• A. It fits a firework. The card either begins a firework (a 1 of a color that has no firework yet), adds to one (the next number in sequence for that color's existing firework), or completes one (the 5 that finishes a color). Place it on the appropriate color's firework. Nothing bad happens.
+• B. It does not fit any firework. If the card cannot begin, add to, or complete any firework — for example a wrong number, a duplicate of a value already on that firework, or a color that has no legal slot for that value — then it is a misfire: discard the card and remove the top Black Fuse token from the stack and place it in the box lid. The fuse is now burning shorter.
+
+After playing (whether it fit or misfired), draw a new card from the deck without looking at it.
+
+How fireworks are built:
+
+• There is only one firework per color.
+• Cards of a firework must be placed in rising order: 1, then 2, then 3, then 4, then finally 5.
+• There is only one card of each value per firework (so a completed firework is exactly 5 cards: 1-2-3-4-5).
+• A firework can only begin with a 1 of that color, and can only be extended by the exact next number for that color.
+
+Bonus for completing a firework: When a player successfully plays the 5 that completes a firework, immediately move one Blue Clock token from the lid back to the table as a free bonus (you do not need to discard to earn it). If all 8 Blue Clock tokens are already on the table at that moment, the bonus is simply lost (you never exceed 8 on the table).
+
+There is no take-back. Once you commit to playing a card, if it turns out not to fit, it is discarded and a fuse is lost; you cannot return it to your hand.
+
+END OF ROUND / END OF GAME
+
+There are exactly three ways the game can end:
+
+1. Defeat (explosion). The game ends immediately and is lost the moment the third Black Fuse token is placed in the box lid — that is, on the third misfire — which reveals the explosion at the bottom of the fuse stack. (The explosion token itself is not moved to the lid; it is simply revealed once the three fuses above it have been removed. In effect, the team may make two misfires safely, and the third misfire ends the game in defeat.)
+
+2. Stunning victory. The game ends immediately if the firework makers complete all 5 fireworks before the deck runs out. This is a perfect performance and the team scores the maximum of 25 points.
+
+3. Deck exhausted — final round. The game moves toward ending as soon as a player draws the last card from the deck. From that point, each player takes one more turn, including the player who drew the last card. During this final round the deck is empty, so players do not draw replacement cards after playing or discarding — hands therefore shrink by one card per turn during the final round. Once every player has taken their one final turn, the game ends and the team totals its score.
+
+SCORING AND TIEBREAKERS
+
+To score, the team adds up the highest-value card present on each firework (because a firework is built in strict ascending order, its top card equals its length). Sum these top values across all fireworks.
+
+Worked example from the rulebook: 5 + 3 + 4 + 1 + 3 = 16 points.
+
+The maximum score is 25 (five completed fireworks of value 5 each). A firework with no cards contributes 0.
+
+Artisan League of Fireworks Technicians reference scale (the team's "artistic impression"):
+
+• 0–5 points: horrible, booed by the crowd.
+• 6–10 points: mediocre, just a hint of scattered applause.
+• 11–15 points: honorable attempt, but quickly forgotten.
+• 16–20 points: excellent, crowd pleasing.
+• 21–24 points: amazing, they will be talking about it for weeks.
+• 25 points: legendary, everyone left speechless, stars in their eyes.
+
+Tiebreakers: None. Hanabi is cooperative and produces a single team score, so there is nothing to tie or break — no player-versus-player comparison ever occurs.
+
+HIDDEN INFORMATION
+
+What each player CAN see:
+
+• The fronts (color and number) of every other player's cards, held facing outward.
+• All fireworks built so far on the table (public).
+• The discard pile, which is face up and may be examined by anyone at any time.
+• How many Blue Clock tokens are on the table versus in the lid.
+• How many Black Fuse tokens have been lost to the lid (and thus how close defeat is).
+• Roughly how many cards remain in the deck.
+
+What each player CANNOT see:
+
+• The fronts of their own cards. A player never directly knows the color or number of any card in their own hand. Looking is forbidden.
+
+A player's only knowledge of their own hand comes from information formally given to them (via spent Blue Clock tokens), from cards visible in other hands / the discard pile / the fireworks, and from their own deductions. Players may physically rearrange their own hand to help track what they have learned.
+
+Communication: Under the strict rules, the only allowed communication about the game state is giving information by spending a Blue Clock token, and teammates must stay silent (no comments, hints, or influence) during another player's turn. The rulebook explicitly permits groups to set their own house rules for communication if they prefer — for example allowing general remarks such as "I still don't know anything about my hand" or "Do you remember what you're holding?" Communication (and deliberate non-communication) is central to Hanabi, so the team may loosen or tighten this to taste.
+
+CLARIFICATIONS
+
+The following points are not fully resolved by the source materials. Options considered are listed for you to decide.
+
+• [UNCLEAR: "5 fireworks" vs "6 fireworks" in scoring.] The rulebook's scoring text says to add up the top card "for each of the 6 fireworks," but the worked example sums only five values (5 + 3 + 4 + 1 + 3 = 16) and this game uses five colors. Options: (a) treat "6" as a slip left over from the game's optional sixth (Multicolor) suit, so scoring covers the 5 fireworks in play (max 25); (b) something else was intended. Recommended reading: score the 5 fireworks in play; the "6" wording assumes the unused sixth suit.
+
+• [UNCLEAR: fuse-token count vs. "third token" loss condition.] There are four Black Fuse tokens but the game is lost on the third one reaching the lid, since the fourth is the pre-printed explosion at the bottom of the stack. This has been written up as "two safe misfires; the third misfire loses." If your physical edition instead intends all four tokens to be spendable (i.e., three safe misfires, loss on the fourth), adjust accordingly — but the text as written says "the third black fuse token."
+
+• [UNCLEAR: whether an unwinnable game must be played out.] The rules do not explicitly say what happens if an indispensable card (e.g., the sole 5 of a color) is discarded or misplayed so that a firework can no longer be completed. This has been written up as: the game simply continues normally and can no longer reach 25 (there is no rule that auto-ends the game on an indispensable loss). If you prefer, you may house-rule an immediate end, but the source text does not state one.
