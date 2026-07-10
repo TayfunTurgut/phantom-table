@@ -8,9 +8,9 @@ from playtest.engine.contract import (
     assert_engine_contract,
     run_random_selfplay,
 )
-from playtest.games import love_letter
+from playtest.games import bull_run, love_letter
 
-ENGINES = [love_letter.Game()]
+ENGINES = [love_letter.Game(), bull_run.Game()]
 
 
 @pytest.mark.parametrize("engine", ENGINES, ids=lambda e: e.game_name)
