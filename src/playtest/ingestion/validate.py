@@ -21,6 +21,10 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+# Generated engines only; the guideline in the contract docstring is ~50
+# actions per decision, the hard validation gate is 100.
+MAX_MENU_SIZE = 100
+
 _HARNESS_SCRIPT = """
 import sys
 from pathlib import Path
@@ -29,7 +33,7 @@ from playtest.engine.contract import assert_engine_contract
 from playtest.engine.loader import load_engine_from_path
 
 engine = load_engine_from_path(Path(sys.argv[1]))
-assert_engine_contract(engine, games_per_count=int(sys.argv[2]))
+assert_engine_contract(engine, games_per_count=int(sys.argv[2]), max_menu_size=int(sys.argv[3]))
 print("contract OK")
 """
 
@@ -77,7 +81,14 @@ def validate_engine(
     test_path = config_dir / "test_engine.py"
 
     harness = subprocess.run(
-        [sys.executable, "-c", _HARNESS_SCRIPT, str(engine_path), str(games_per_count)],
+        [
+            sys.executable,
+            "-c",
+            _HARNESS_SCRIPT,
+            str(engine_path),
+            str(games_per_count),
+            str(MAX_MENU_SIZE),
+        ],
         capture_output=True,
         text=True,
         timeout=timeout,

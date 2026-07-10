@@ -78,3 +78,76 @@ def test_harness_rejects_mutating_engine():
 
 def test_reference_engine_is_a_game_engine():
     assert isinstance(love_letter.Game(), GameEngine)
+
+
+def test_harness_rejects_oversized_menu():
+    class HugeMenu:
+        game_name = "HugeMenu"
+        min_players = 2
+        max_players = 2
+
+        def setup(self, num_players, seed):
+            return {"done": False}, []
+
+        def to_act(self, state):
+            return [] if state["done"] else ["player_1"]
+
+        def legal_actions(self, state, seat):
+            return [Action(seat=seat, name=f"opt_{i}", label=f"Option {i}") for i in range(150)]
+
+        def apply(self, state, actions):
+            return {"done": True}, []
+
+        def observe(self, state, seat):
+            return {}
+
+        def status(self, state):
+            from playtest.engine import GameStatus
+
+            return GameStatus(over=state["done"])
+
+    with pytest.raises(ContractViolation, match="staged decisions"):
+        run_random_selfplay(HugeMenu(), 2, seed=0, max_menu_size=100)
+
+
+@pytest.mark.parametrize("engine", ENGINES, ids=lambda e: e.game_name)
+def test_engine_satisfies_menu_size_cap(engine):
+    assert_engine_contract(engine, games_per_count=20, max_menu_size=100)
+
+
+def test_trajectory_records_max_menu():
+    class Steps:
+        game_name = "Steps"
+        min_players = 2
+        max_players = 2
+
+        def setup(self, num_players, seed):
+            return {"turn": 0}, []
+
+        def to_act(self, state):
+            return [] if state["turn"] >= 2 else ["player_1"]
+
+        def legal_actions(self, state, seat):
+            count = 3 if state["turn"] == 0 else 7
+            return [Action(seat=seat, name=f"a{i}", label=f"A{i}") for i in range(count)]
+
+        def apply(self, state, actions):
+            return {"turn": state["turn"] + 1}, []
+
+        def observe(self, state, seat):
+            return {}
+
+        def status(self, state):
+            from playtest.engine import GameStatus
+
+            return GameStatus(over=state["turn"] >= 2)
+
+    trajectory = run_random_selfplay(Steps(), 2, seed=0)
+    assert trajectory.max_menu == 7
+
+
+def test_fingerprint_excludes_max_menu():
+    trajectory = run_random_selfplay(love_letter.Game(), 2, seed=0)
+    baseline = trajectory.fingerprint()
+    trajectory.max_menu = 999999
+    assert trajectory.fingerprint() == baseline

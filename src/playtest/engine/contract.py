@@ -39,6 +39,7 @@ class Trajectory:
     steps: list[Step] = field(default_factory=list)
     final_state: dict | None = None
     status: GameStatus | None = None
+    max_menu: int = 0
 
     def fingerprint(self) -> str:
         """Deterministic digest used to compare replays of the same seed."""
@@ -69,6 +70,8 @@ def run_random_selfplay(
     num_players: int,
     seed: int,
     max_steps: int = 10_000,
+    *,
+    max_menu_size: int | None = None,
 ) -> Trajectory:
     """Play one game with uniformly random choices, checking the contract per step."""
     rng = random.Random(seed)
@@ -99,6 +102,13 @@ def run_random_selfplay(
                 raise ContractViolation(
                     f"legal_actions() empty for acting seat {seat}; enumerate a pass "
                     "action if the rules allow doing nothing"
+                )
+            trajectory.max_menu = max(trajectory.max_menu, len(legal))
+            if max_menu_size is not None and len(legal) > max_menu_size:
+                raise ContractViolation(
+                    f"legal_actions() for seat {seat} returned {len(legal)} actions, "
+                    f"exceeding max_menu_size={max_menu_size}; split this decision "
+                    "into consecutive staged decisions — see contract point 4"
                 )
             stable = engine.legal_actions(state, seat)
             if [a.key() for a in legal] != [a.key() for a in stable]:
@@ -131,6 +141,7 @@ def assert_engine_contract(
     player_counts: list[int] | None = None,
     games_per_count: int = 50,
     max_steps: int = 10_000,
+    max_menu_size: int | None = None,
 ) -> list[Trajectory]:
     """Self-play many seeded games per player count; raise on any contract breach.
 
@@ -141,8 +152,14 @@ def assert_engine_contract(
     trajectories: list[Trajectory] = []
     for num_players in counts:
         for seed in range(games_per_count):
-            trajectories.append(run_random_selfplay(engine, num_players, seed, max_steps=max_steps))
-        replay = run_random_selfplay(engine, num_players, 0, max_steps=max_steps)
+            trajectories.append(
+                run_random_selfplay(
+                    engine, num_players, seed, max_steps=max_steps, max_menu_size=max_menu_size
+                )
+            )
+        replay = run_random_selfplay(
+            engine, num_players, 0, max_steps=max_steps, max_menu_size=max_menu_size
+        )
         first = next(t for t in trajectories if t.num_players == num_players and t.seed == 0)
         if replay.fingerprint() != first.fingerprint():
             raise ContractViolation(
