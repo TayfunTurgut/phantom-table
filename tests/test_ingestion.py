@@ -13,11 +13,17 @@ from pathlib import Path
 
 import pytest
 
+import playtest.engine
 from playtest.config import get_settings
 from playtest.engine.loader import load_engine_from_path
 from playtest.errors import PlaytestError
 from playtest.ingestion import codegen, pipeline
-from playtest.ingestion.codegen import check_engine_source, extract_python, prompts_fingerprint
+from playtest.ingestion.codegen import (
+    check_engine_source,
+    extract_python,
+    prompts_fingerprint,
+    select_exemplar,
+)
 from playtest.ingestion.digest import (
     _digest_json_schema,
     digest_to_markdown,
@@ -489,3 +495,103 @@ def test_ingest_rulebook_threads_games_per_count_and_timeout(monkeypatch, rulebo
     ingest_rulebook(rulebook, "token_duel", client=client)
 
     assert seen == {"games_per_count": 5, "timeout": 42}
+
+
+# --- exemplar selection + mechanic-conditional prompt content ---------------
+
+
+def _digest_with(mechanics):
+    return DIGEST.model_copy(update={"mechanics": mechanics})
+
+
+def test_select_exemplar_routes_phase_machine_mechanics_to_bull_run():
+    name, source = select_exemplar(_digest_with(["simultaneous_decisions"]))
+    assert name == "bull_run"
+    assert "class Game" in source and "bull_heads" in source
+
+
+def test_select_exemplar_routes_hidden_hands_to_love_letter():
+    name, source = select_exemplar(_digest_with(["hidden_hands"]))
+    assert name == "love_letter"
+    assert "Princess" in source
+
+
+def test_select_exemplar_defaults_to_love_letter_without_mechanics():
+    assert select_exemplar(_digest_with([]))[0] == "love_letter"
+
+
+def test_select_exemplar_override_wins_over_mechanics():
+    name, _ = select_exemplar(_digest_with(["simultaneous_decisions"]), override="love_letter")
+    assert name == "love_letter"
+
+
+def test_select_exemplar_rejects_unknown_override():
+    with pytest.raises(PlaytestError) as exc:
+        select_exemplar(_digest_with([]), override="nope")
+    assert "love_letter" in str(exc.value) and "bull_run" in str(exc.value)
+
+
+def _codegen_prompts(client):
+    """(engine_system_prompt, test_system_prompt) — engine is generated first."""
+    codegen_calls = [c for c in client.calls if c["role"] == "codegen"]
+    return (
+        codegen_calls[0]["messages"][0]["content"],
+        codegen_calls[1]["messages"][0]["content"],
+    )
+
+
+def test_simultaneous_digest_uses_bull_run_and_its_guidance(rulebook):
+    digest = _digest_with(["simultaneous_decisions"])
+    client = StubLLMClient([digest.model_dump_json(), _fenced(GOOD_ENGINE), _fenced(GOOD_TESTS)])
+    artifacts = ingest_rulebook(rulebook, "token_duel", client=client)
+    engine_prompt, test_prompt = _codegen_prompts(client)
+
+    assert "bull_heads" in engine_prompt  # bull_run source embedded
+    assert "Princess" not in engine_prompt  # love_letter NOT used as the exemplar
+    assert "SIMULTANEOUS DECISIONS" in engine_prompt
+    # The elimination bullet is scoped to player_elimination — absent from this digest.
+    assert "eliminations don't immediately end a round" not in test_prompt
+    assert artifacts.meta["exemplar"] == "bull_run"
+
+
+def test_open_supply_digest_swaps_conservation_for_supply_bullet(rulebook):
+    digest = _digest_with(["open_supply"])
+    client = StubLLMClient([digest.model_dump_json(), _fenced(GOOD_ENGINE), _fenced(GOOD_TESTS)])
+    ingest_rulebook(rulebook, "token_duel", client=client)
+    _, test_prompt = _codegen_prompts(client)
+
+    # The positive conservation check is gone; only the open-supply bullet remains
+    # (which mentions "conservation" solely to say NOT to assert it).
+    assert "sum each component across all zones" not in test_prompt
+    assert "The supply is open" in test_prompt
+
+
+def test_conservation_bullet_present_without_open_supply(rulebook):
+    client = StubLLMClient([DIGEST.model_dump_json(), _fenced(GOOD_ENGINE), _fenced(GOOD_TESTS)])
+    ingest_rulebook(rulebook, "token_duel", client=client)
+    _, test_prompt = _codegen_prompts(client)
+    assert "sum each component across all zones" in test_prompt
+
+
+def test_meta_records_exemplar_name_and_override(rulebook):
+    client = StubLLMClient([DIGEST.model_dump_json(), _fenced(GOOD_ENGINE), _fenced(GOOD_TESTS)])
+    artifacts = ingest_rulebook(rulebook, "token_duel", client=client)
+    assert artifacts.meta["exemplar"] == "love_letter"
+
+    client = StubLLMClient([DIGEST.model_dump_json(), _fenced(GOOD_ENGINE), _fenced(GOOD_TESTS)])
+    artifacts = ingest_rulebook(rulebook, "token_duel", client=client, exemplar_override="bull_run")
+    assert artifacts.meta["exemplar"] == "bull_run"
+    engine_prompt, _ = _codegen_prompts(client)
+    assert "bull_heads" in engine_prompt
+
+
+def test_fingerprint_changes_when_contract_docstring_changes(monkeypatch):
+    before = prompts_fingerprint()
+    monkeypatch.setattr(playtest.engine, "__doc__", (playtest.engine.__doc__ or "") + " X")
+    assert prompts_fingerprint() != before
+
+
+def test_fingerprint_changes_when_exemplar_source_changes(monkeypatch):
+    before = prompts_fingerprint()
+    monkeypatch.setattr(codegen, "_all_exemplar_sources", lambda: ["changed source"])
+    assert prompts_fingerprint() != before

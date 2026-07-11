@@ -47,6 +47,7 @@ def _run_ingest(
     name: str,
     max_attempts: int | None = None,
     max_test_repairs: int | None = None,
+    exemplar: str | None = None,
 ) -> None:
     """Run the ingestion pipeline and print a summary of the generated engine."""
     from pathlib import Path
@@ -60,7 +61,11 @@ def _run_ingest(
         console.print(f"[yellow]Overwriting existing config for {name}[/yellow]")
 
     artifacts = ingest_rulebook(
-        rulebook, name, max_attempts=max_attempts, max_test_repairs=max_test_repairs
+        rulebook,
+        name,
+        max_attempts=max_attempts,
+        max_test_repairs=max_test_repairs,
+        exemplar_override=exemplar,
     )
     digest = artifacts.digest
     console.print(
@@ -267,6 +272,14 @@ def main() -> None:
         default=None,
         help="Max test-only repair rounds per attempt (default: from settings)",
     )
+    from playtest.ingestion.codegen import _EXEMPLARS
+
+    ingest_parser.add_argument(
+        "--exemplar",
+        choices=sorted(_EXEMPLARS),
+        default=None,
+        help="Force the codegen reference exemplar (default: auto-select by mechanics)",
+    )
 
     # Subcommand: show-config
     show_parser = subparsers.add_parser(
@@ -366,7 +379,9 @@ def main() -> None:
     if args.command == "smoke-test":
         _smoke_test()
     elif args.command == "ingest":
-        _run_ingest(args.rulebook, args.name, args.max_attempts, args.max_test_repairs)
+        _run_ingest(
+            args.rulebook, args.name, args.max_attempts, args.max_test_repairs, args.exemplar
+        )
     elif args.command == "show-config":
         _show_config(args.game, args.truncate)
     elif args.command == "play":

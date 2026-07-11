@@ -43,7 +43,9 @@ _TESTS_MAY_BE_WRONG_HINT = (
     "serializability). The failing generated tests below may themselves be wrong — "
     "re-check each failure against the digest before assuming an engine bug. The "
     "most common test mistake: forgetting that apply() auto-advances to the next "
-    "decision point (the next player has already auto-drawn)."
+    "decision point — mandatory draws, refills, automa turns, scoring, and redeals "
+    "have already resolved when apply() returns, and a reaction window may already "
+    "be open (to_act may return a responder, not the next turn player)."
 )
 
 

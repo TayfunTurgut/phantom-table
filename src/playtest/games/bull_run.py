@@ -172,6 +172,11 @@ class Game:
 
     def _advance(self, state: dict, events: list[Event]) -> None:
         """Place queued cards in ascending order, pausing if one is too low."""
+        # Cards resolve strictly ascending, and taking a row restarts it with the
+        # current (lowest remaining) card, so every later card is higher than some
+        # row's last card: a second choose_row pause within one turn is unreachable.
+        # The loop is written to re-pause defensively anyway — that is intentional
+        # teaching, not a live code path.
         remaining = state["pending"]["remaining"]
         while remaining:
             card, seat = remaining[0]
@@ -310,6 +315,10 @@ class Game:
             "rows": copy.deepcopy(state["rows"]),
             "your_hand": sorted(state["hands"][seat]),
             # Own face-down card in the clear; None while nothing is committed.
+            # The commitment-hiding branch is structurally present but unexercised
+            # under this single-call commit model (every seat commits in one apply,
+            # so "committed" is never populated between calls) — do not read it as a
+            # populated pattern to copy.
             "your_committed_card": state["committed"].get(seat),
             "players": {
                 other: {

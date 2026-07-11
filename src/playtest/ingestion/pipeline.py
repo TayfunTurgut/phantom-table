@@ -38,9 +38,10 @@ from playtest.ingestion.codegen import (
     generate_engine_source,
     generate_test_source,
     prompts_fingerprint,
+    select_exemplar,
 )
 from playtest.ingestion.digest import generate_digest, save_digest
-from playtest.ingestion.schemas import GameArtifacts
+from playtest.ingestion.schemas import GameArtifacts, GameDigest
 from playtest.ingestion.validate import ValidationResult, validate_engine
 from playtest.llm import LLMClient, create_llm_client
 
@@ -64,6 +65,7 @@ def _archive_attempt(config_dir: Path, index: int, failure: str) -> None:
 def _validate_with_test_repairs(
     client: LLMClient,
     config_dir: Path,
+    digest: GameDigest,
     digest_json: str,
     engine_source: str,
     test_source: str,
@@ -92,6 +94,7 @@ def _validate_with_test_repairs(
         try:
             test_source = generate_test_source(
                 client,
+                digest,
                 digest_json,
                 engine_source,
                 feedback=result.feedback,
@@ -108,6 +111,7 @@ def ingest_rulebook(
     game_name: str,
     max_attempts: int | None = None,
     max_test_repairs: int | None = None,
+    exemplar_override: str | None = None,
     client: LLMClient | None = None,
 ) -> GameArtifacts:
     # The name becomes a directory that is rmtree'd below — reject traversal first.
@@ -137,6 +141,9 @@ def ingest_rulebook(
     digest = generate_digest(client, rulebook_text)
     save_digest(digest, config_dir)
     digest_json = json.dumps(digest.model_dump(), indent=2)
+    exemplar_name, exemplar_source = select_exemplar(digest, exemplar_override)
+    exemplar = (exemplar_name, exemplar_source)
+    _console.print(f"[cyan]Exemplar: {exemplar_name}[/cyan]")
 
     feedback: str | None = None
     previous_source: str | None = None
@@ -150,13 +157,15 @@ def ingest_rulebook(
         try:
             engine_source = generate_engine_source(
                 client,
+                digest,
                 digest_json,
                 rulebook_text,
+                exemplar,
                 feedback=feedback,
                 previous_source=previous_source,
             )
             test_source = generate_test_source(
-                client, digest_json, engine_source, feedback=feedback
+                client, digest, digest_json, engine_source, feedback=feedback
             )
         except PlaytestError as exc:  # unparseable code / disallowed import
             feedback = f"STAGE: code generation produced an invalid module.\n\n{exc}"
@@ -169,6 +178,7 @@ def ingest_rulebook(
         result, repairs = _validate_with_test_repairs(
             client,
             config_dir,
+            digest,
             digest_json,
             engine_source,
             test_source,
@@ -187,6 +197,7 @@ def ingest_rulebook(
                         "min_players": digest.min_players,
                         "max_players": digest.max_players,
                         "mechanics": digest.mechanics,
+                        "exemplar": exemplar_name,
                         "max_decisions": digest.max_decisions,
                         "digest_model": client.models["digest"],
                         "codegen_model": client.models["codegen"],
