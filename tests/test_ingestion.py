@@ -287,6 +287,10 @@ def test_repair_loop_recovers_from_broken_codegen(rulebook):
     )
     artifacts = ingest_rulebook(rulebook, "token_duel", client=client)
     assert artifacts.meta["engine_attempts"] == 2
+    # The parse-error feedback carries into attempt 2's ENGINE generation call
+    # (calls[0] is the digest, calls[1] is attempt 1's failed engine generation).
+    engine_repair_request = client.calls[2]["messages"][-1]["content"]
+    assert "does not parse" in engine_repair_request
 
 
 def test_lint_failure_routes_to_regeneration(rulebook):
@@ -302,10 +306,13 @@ def test_lint_failure_routes_to_regeneration(rulebook):
     )
     artifacts = ingest_rulebook(rulebook, "token_duel", client=client)
     assert artifacts.meta["engine_attempts"] == 2
-    # Attempt 1's engine generation fails before a test module exists, so the
-    # ruff feedback carries into attempt 2's TEST generation call.
-    repair_request = client.calls[3]["messages"][-1]["content"]
-    assert "F821" in repair_request
+    # The ruff feedback carries into BOTH attempt 2's ENGINE generation call
+    # (calls[2]) and its TEST generation call (calls[3]); calls[0] is the
+    # digest, calls[1] is attempt 1's (failed) engine generation.
+    engine_repair_request = client.calls[2]["messages"][-1]["content"]
+    assert "F821" in engine_repair_request
+    test_repair_request = client.calls[3]["messages"][-1]["content"]
+    assert "F821" in test_repair_request
 
 
 def test_ingest_rejects_unsafe_game_name(rulebook, tmp_path):

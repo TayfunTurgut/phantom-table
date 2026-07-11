@@ -306,6 +306,16 @@ If the failure came from a generated test that contradicts the digest, still
 output the engine module — the tests are regenerated separately.
 """
 
+# No previous_source yet: the failure struck before a module existed to show
+# (unparseable code, a disallowed import, or a lint error caught pre-validation).
+_FEEDBACK_ONLY_REPAIR_SECTION = """
+YOUR PREVIOUS ATTEMPT FAILED BEFORE VALIDATION:
+
+{feedback}
+
+Diagnose the root cause and output a corrected COMPLETE module (not a diff).
+"""
+
 
 def generate_engine_source(
     client: LLMClient,
@@ -322,6 +332,8 @@ def generate_engine_source(
         feedback_section = _REPAIR_SECTION.format(
             previous_source=previous_source, feedback=feedback
         )
+    elif feedback:
+        feedback_section = _FEEDBACK_ONLY_REPAIR_SECTION.format(feedback=feedback)
     raw = client.complete(
         [
             {
@@ -537,6 +549,7 @@ def prompts_fingerprint() -> str:
         _ENGINE_SYSTEM_PROMPT,
         _ENGINE_USER_PROMPT,
         _REPAIR_SECTION,
+        _FEEDBACK_ONLY_REPAIR_SECTION,
         _TEST_SYSTEM_PROMPT,
         _TEST_USER_PROMPT,
         _TEST_REPAIR_SECTION,
