@@ -71,7 +71,7 @@ Offline: 207 tests pass, ruff and mypy clean. End-to-end (real ingests):
 
 | Game | Purpose | Status |
 |---|---|---|
-| Love Letter (re-ingest) | sequential-path regression | **passed** — validated on engine attempt 1 (1 test repair), matching its historical run. Note: the digest tagged `multi_stage_turns` (card→target→guess), routing it to the `bull_run` exemplar — a mis-route per intent that nonetheless generated a working engine first try; evidence for tightening the `multi_stage_turns` one-liner (tag only when a single menu would be impractically large, not merely multi-parameter) |
+| Love Letter (re-ingest) | sequential-path regression | **passed** — validated on engine attempt 1 (1 test repair), matching its historical run. Note: the digest tagged `multi_stage_turns` (card→target→guess), routing it to the `bull_run` exemplar — a mis-route per intent that nonetheless generated a working engine first try. The `multi_stage_turns` tag definition has since been tightened (tag only when a single menu would be impractically large, not merely multi-parameter); re-ingest to confirm it now routes to `love_letter` |
 | Hanabi (re-ingest) | co-op regression | interrupted mid-run — its `game_configs/hanabi/` dir was wiped by the re-ingest start and now needs `uv run playtest ingest --rulebook rulebooks/hanabi.txt --name hanabi` re-run before Hanabi can be played |
 | Sushi Go | first generated simultaneous-drafting engine (headline proof of exemplar routing) | awaiting rulebook |
 | Coup | reaction/challenge windows end-to-end | awaiting rulebook |

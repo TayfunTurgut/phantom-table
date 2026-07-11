@@ -21,7 +21,11 @@ Requirements:
   only mechanics the game truly uses; leave the rest off. The vocabulary:
   - simultaneous_decisions: several seats choose at once (hidden reveal, votes).
   - reaction_windows: a "may respond"/interrupt window (block, challenge, Nope).
-  - multi_stage_turns: one turn is several dependent choices (move then build).
+  - multi_stage_turns: one turn must be resolved as several SEPARATE decision
+    points because binding it as one choice would enumerate an impractically
+    large menu — open bid amounts, free placement, move-then-build. An action
+    with a couple of parameters (pick a card, then a target and a guess) that
+    enumerates to a modest fully-bound list is NOT multi-stage.
   - open_supply: a shared, unlimited or replenishing pool (a market, a bank).
   - board_or_map: a shared board, map, or track pieces move across.
   - hidden_hands: players hold private cards/tiles others cannot see.
