@@ -10,7 +10,7 @@ from rich.panel import Panel
 
 from playtest.agents.player import PlayerAgent
 from playtest.checkpoint import load_checkpoint
-from playtest.config import get_settings
+from playtest.config import Settings, get_settings
 from playtest.engine import GameEngine, seats_for
 from playtest.engine.loader import load_engine
 from playtest.errors import PlaytestError
@@ -45,6 +45,27 @@ def resolve_game(game_ref: str) -> tuple[GameEngine, Path | None]:
     if path.suffix == ".py" and path.is_file():
         return engine, path.parent
     return engine, None
+
+
+def _effective_max_steps(config_dir: Path | None, settings: Settings) -> int:
+    """Prefer the per-game decision budget declared in the game's meta.json.
+
+    Falls back to ``settings.max_steps`` (the global crash ceiling) when there's
+    no config dir (e.g. module-ref games), no meta.json, no/zero
+    ``max_decisions``, or the meta.json can't be read — provenance metadata
+    should never be able to crash a playtest.
+    """
+    if config_dir is not None:
+        meta_path = config_dir / "meta.json"
+        if meta_path.is_file():
+            try:
+                meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                max_decisions = meta.get("max_decisions", 0)
+            except (json.JSONDecodeError, OSError):
+                max_decisions = 0
+            if isinstance(max_decisions, int) and max_decisions > 0:
+                return max_decisions
+    return settings.max_steps
 
 
 def _make_players(
@@ -125,7 +146,7 @@ def run_game(
             num_players=num_players,
             seed=seed,
             session_id=session_id,
-            max_steps=settings.max_steps,
+            max_steps=_effective_max_steps(config_dir, settings),
             checkpoint_path=checkpoint_path,
             game_ref=game_ref,
             archetypes=archetypes,
@@ -179,7 +200,7 @@ def resume_game(
             num_players=cp.num_players,
             seed=cp.seed,
             session_id=cp.session_id,
-            max_steps=settings.max_steps,
+            max_steps=_effective_max_steps(config_dir, settings),
             checkpoint_path=checkpoint_path,
             game_ref=cp.game_ref,
             archetypes=cp.archetypes,
