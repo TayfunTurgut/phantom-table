@@ -24,8 +24,8 @@ The engine contract is designed for sequential, simultaneous-turn, co-op, and Pv
 unlock harder families: reaction/"may respond" windows flattened into explicit decision
 points, and combinatorial choices staged into consecutive smaller menus. Two
 hand-written reference engines ship in `playtest.games` — `love_letter` (sequential,
-hidden hands) and `bull_run` (simultaneous commits, mid-resolution phase machine) —
-serving as codegen exemplars and permanent test fixtures; ingestion picks the exemplar
+hidden hands) and `six_nimmt` (6 nimmt!/Take 5: simultaneous commits, mid-resolution
+phase machine) — serving as codegen exemplars and permanent test fixtures; ingestion picks the exemplar
 that matches the digest's mechanics.
 
 This project uses [uv](https://docs.astral.sh/uv/) as its package manager and task
@@ -159,7 +159,7 @@ engine generation and the player agents — ingest each mode as its own game
 The digest tags the game's structural `mechanics` (simultaneous decisions,
 reaction windows, multi-stage turns, open supplies, boards, ...). Those tags
 pick which hand-written reference engine is embedded in the codegen prompt as
-the exemplar — `love_letter` for sequential hidden-hand games, `bull_run` (a
+the exemplar — `love_letter` for sequential hidden-hand games, `six_nimmt` (a
 simultaneous-commit engine with a mid-resolution phase machine) for
 simultaneous/staged/reaction games — and switch mechanic-specific guidance
 blocks in the engine and test prompts. Override the routing with

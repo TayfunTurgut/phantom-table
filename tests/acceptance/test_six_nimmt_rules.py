@@ -1,17 +1,17 @@
-"""Rule-level acceptance tests for Bull Run engines.
+"""Rule-level acceptance tests for 6 nimmt! engines.
 
 Parameterized over engine instances so the same suite can validate both the
 hand-written reference engine and (later) a generated one. Crafted states use
-the canonical Bull Run state shape; resolution is exercised with hand-built
+the canonical 6 nimmt! state shape; resolution is exercised with hand-built
 board positions rather than only random play.
 """
 
 import pytest
 
 from playtest.engine import Action
-from playtest.games import bull_run
+from playtest.games import six_nimmt
 
-ENGINES = [bull_run.Game()]
+ENGINES = [six_nimmt.Game()]
 
 
 @pytest.fixture(params=ENGINES, ids=lambda e: e.game_name)
@@ -93,14 +93,14 @@ def all_cards(state) -> list[int]:
     ],
 )
 def test_bull_heads_values(card, points):
-    assert bull_run.bull_heads(card) == points
+    assert six_nimmt.bull_heads(card) == points
 
 
 def test_bull_heads_covers_whole_deck():
     # Every card scores at least one bull head; the total is a fixed constant.
-    assert all(bull_run.bull_heads(c) >= 1 for c in range(1, 105))
+    assert all(six_nimmt.bull_heads(c) >= 1 for c in range(1, 105))
     # 7 (the 55) + 8×5 (other ×11) + 10×3 (×10) + 9×2 (other ×5) + 76×1 = 171.
-    assert sum(bull_run.bull_heads(c) for c in range(1, 105)) == 171
+    assert sum(six_nimmt.bull_heads(c) for c in range(1, 105)) == 171
 
 
 # ------------------------------------------------------------------ setup

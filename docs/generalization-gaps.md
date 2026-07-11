@@ -10,14 +10,14 @@ the push fixed the **codegen layer** and the structural caps around it.
 - **Multi-seat / simultaneous decisions.** Contract point 3 + the session loop
   handle multi-seat `to_act` with same-step information isolation
   (`tests/test_simultaneous.py`). The push added a *shipped* simultaneous
-  engine: `playtest.games.bull_run` (6 nimmt!-style — simultaneous face-down
+  engine: `playtest.games.six_nimmt` (6 nimmt!-style — simultaneous face-down
   commits, batch apply, a mid-resolution `choose_row` phase machine), with a
   34-test acceptance suite and contract-harness fuzzing at every player count.
 - **Exemplar routing (was gap #1, the big one).** Codegen no longer embeds
   Love Letter unconditionally with "match precisely". The digest emits
   constrained `mechanics` tags; `select_exemplar`
   (`src/playtest/ingestion/codegen.py`) routes simultaneous / multi-stage /
-  reaction games to the `bull_run` exemplar and everything else to
+  reaction games to the `six_nimmt` exemplar and everything else to
   `love_letter`, with a `--exemplar` CLI override. The engine prompt now says
   the digest, not the exemplar, defines the game, lists the binding
   CONVENTIONS explicitly, and appends mechanic-conditional guidance blocks
@@ -71,7 +71,7 @@ Offline: 207 tests pass, ruff and mypy clean. End-to-end (real ingests):
 
 | Game | Purpose | Status |
 |---|---|---|
-| Love Letter (re-ingest) | sequential-path regression | **passed** — validated on engine attempt 1 (1 test repair), matching its historical run. Note: the digest tagged `multi_stage_turns` (card→target→guess), routing it to the `bull_run` exemplar — a mis-route per intent that nonetheless generated a working engine first try. The `multi_stage_turns` tag definition has since been tightened (tag only when a single menu would be impractically large, not merely multi-parameter); re-ingest to confirm it now routes to `love_letter` |
+| Love Letter (re-ingest) | sequential-path regression | **passed** — validated on engine attempt 1 (1 test repair), matching its historical run. Note: the digest tagged `multi_stage_turns` (card→target→guess), routing it to the `six_nimmt` exemplar — a mis-route per intent that nonetheless generated a working engine first try. The `multi_stage_turns` tag definition has since been tightened (tag only when a single menu would be impractically large, not merely multi-parameter); re-ingest to confirm it now routes to `love_letter` |
 | Hanabi (re-ingest) | co-op regression | interrupted mid-run — its `game_configs/hanabi/` dir was wiped by the re-ingest start and now needs `uv run playtest ingest --rulebook rulebooks/hanabi.txt --name hanabi` re-run before Hanabi can be played |
 | Sushi Go | first generated simultaneous-drafting engine (headline proof of exemplar routing) | awaiting rulebook |
 | Coup | reaction/challenge windows end-to-end | awaiting rulebook |

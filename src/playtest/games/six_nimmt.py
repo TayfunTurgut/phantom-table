@@ -1,4 +1,4 @@
-"""Bull Run (a 6 nimmt!/Take 5 clone, 2-10 players) — reference GameEngine.
+"""6 nimmt! (aka Take 5, 2-10 players) — reference GameEngine.
 
 This module is the second exemplar for generated game engines, and the one that
 teaches two mechanics Love Letter does not: a *simultaneous commit* (every seat
@@ -51,7 +51,7 @@ def bull_heads(card: int) -> int:
 
 
 class Game:
-    game_name = "Bull Run"
+    game_name = "6 nimmt!"
     min_players = 2
     max_players = 10
 
@@ -59,7 +59,7 @@ class Game:
 
     def setup(self, num_players: int, seed: int) -> tuple[dict, list[Event]]:
         if not self.min_players <= num_players <= self.max_players:
-            raise ValueError(f"Bull Run supports 2-10 players, got {num_players}")
+            raise ValueError(f"6 nimmt! supports 2-10 players, got {num_players}")
         rng = random.Random(seed)
         state = {
             "num_players": num_players,

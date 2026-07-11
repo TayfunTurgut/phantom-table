@@ -13,7 +13,7 @@ from types import ModuleType
 
 import playtest.engine
 from playtest.errors import PlaytestError
-from playtest.games import bull_run, love_letter
+from playtest.games import love_letter, six_nimmt
 from playtest.ingestion.schemas import GameDigest, MechanicTag
 from playtest.llm import LLMClient
 
@@ -38,15 +38,15 @@ _ALLOWED_IMPORT_ROOTS = {
 
 _TEST_ALLOWED_EXTRA = {"pytest", "pathlib"}
 
-# Two shipped exemplars. bull_run demonstrates the phase-machine / simultaneous-
+# Two shipped exemplars. six_nimmt demonstrates the phase-machine / simultaneous-
 # commit idioms (a mid-resolution phase key, a single apply call taking every
 # committing seat); love_letter demonstrates sequential hidden-hand play. The
 # selector routes on the digest's structural mechanics so the exemplar shares the
 # game's decision structure instead of biasing every game toward Love Letter.
-_EXEMPLARS: dict[str, ModuleType] = {"love_letter": love_letter, "bull_run": bull_run}
+_EXEMPLARS: dict[str, ModuleType] = {"love_letter": love_letter, "six_nimmt": six_nimmt}
 
-# Mechanics that make bull_run the closer structural match.
-_BULL_RUN_MECHANICS: frozenset[MechanicTag] = frozenset(
+# Mechanics that make six_nimmt the closer structural match.
+_SIX_NIMMT_MECHANICS: frozenset[MechanicTag] = frozenset(
     {"simultaneous_decisions", "multi_stage_turns", "reaction_windows"}
 )
 
@@ -55,15 +55,15 @@ def select_exemplar(digest: GameDigest, override: str | None = None) -> tuple[st
     """Pick the reference engine whose decision structure best matches ``digest``.
 
     Returns ``(name, source)``. An explicit ``override`` (a registry key) wins;
-    otherwise a digest tagged with any phase-machine mechanic routes to bull_run
+    otherwise a digest tagged with any phase-machine mechanic routes to six_nimmt
     and everything else to love_letter.
     """
     if override is not None:
         if override not in _EXEMPLARS:
             raise PlaytestError(f"unknown exemplar {override!r}; valid names: {sorted(_EXEMPLARS)}")
         name = override
-    elif _BULL_RUN_MECHANICS.intersection(digest.mechanics):
-        name = "bull_run"
+    elif _SIX_NIMMT_MECHANICS.intersection(digest.mechanics):
+        name = "six_nimmt"
     else:
         name = "love_letter"
     return name, inspect.getsource(_EXEMPLARS[name])
@@ -138,7 +138,7 @@ def lint_source(source: str, filename: str) -> None:
 # Mechanic-conditional guidance appended to the engine prompt. The two starred
 # blocks (reaction_windows, multi_stage_turns) carry literal code sketches; those
 # sketches must stay consistent with contract points 4/5 and with the shipped
-# exemplars (bull_run's choose_row phase machine, tests/test_reactions.py's
+# exemplars (six_nimmt's choose_row phase machine, tests/test_reactions.py's
 # window). State is JSON-only, so sketches store primitives, never Action objects.
 _GUIDANCE_BLOCKS: dict[MechanicTag, str] = {
     "simultaneous_decisions": """\

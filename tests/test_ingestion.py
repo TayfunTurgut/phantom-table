@@ -663,7 +663,7 @@ def test_exemplar_reselected_after_digest_regeneration(rulebook):
     """Mechanics can change across a digest regeneration; the exemplar must be
     re-picked, not carried over from the failed digest."""
     digest_1 = _digest_with([])  # -> love_letter (default)
-    digest_2 = _digest_with(["simultaneous_decisions"])  # -> bull_run
+    digest_2 = _digest_with(["simultaneous_decisions"])  # -> six_nimmt
     client = StubLLMClient(
         [
             digest_1.model_dump_json(),
@@ -680,7 +680,7 @@ def test_exemplar_reselected_after_digest_regeneration(rulebook):
     # index 2: the engine-generation call for digest 2's (successful) attempt 1.
     engine_prompt = codegen_calls[2]["messages"][0]["content"]
     assert "bull_heads" in engine_prompt
-    assert artifacts.meta["exemplar"] == "bull_run"
+    assert artifacts.meta["exemplar"] == "six_nimmt"
 
 
 def test_ingest_rulebook_threads_games_per_count_and_timeout(monkeypatch, rulebook):
@@ -708,9 +708,9 @@ def _digest_with(mechanics):
     return DIGEST.model_copy(update={"mechanics": mechanics})
 
 
-def test_select_exemplar_routes_phase_machine_mechanics_to_bull_run():
+def test_select_exemplar_routes_phase_machine_mechanics_to_six_nimmt():
     name, source = select_exemplar(_digest_with(["simultaneous_decisions"]))
-    assert name == "bull_run"
+    assert name == "six_nimmt"
     assert "class Game" in source and "bull_heads" in source
 
 
@@ -732,7 +732,7 @@ def test_select_exemplar_override_wins_over_mechanics():
 def test_select_exemplar_rejects_unknown_override():
     with pytest.raises(PlaytestError) as exc:
         select_exemplar(_digest_with([]), override="nope")
-    assert "love_letter" in str(exc.value) and "bull_run" in str(exc.value)
+    assert "love_letter" in str(exc.value) and "six_nimmt" in str(exc.value)
 
 
 def _codegen_prompts(client):
@@ -744,18 +744,18 @@ def _codegen_prompts(client):
     )
 
 
-def test_simultaneous_digest_uses_bull_run_and_its_guidance(rulebook):
+def test_simultaneous_digest_uses_six_nimmt_and_its_guidance(rulebook):
     digest = _digest_with(["simultaneous_decisions"])
     client = StubLLMClient([digest.model_dump_json(), _fenced(GOOD_ENGINE), _fenced(GOOD_TESTS)])
     artifacts = ingest_rulebook(rulebook, "token_duel", client=client)
     engine_prompt, test_prompt = _codegen_prompts(client)
 
-    assert "bull_heads" in engine_prompt  # bull_run source embedded
+    assert "bull_heads" in engine_prompt  # six_nimmt source embedded
     assert "Princess" not in engine_prompt  # love_letter NOT used as the exemplar
     assert "SIMULTANEOUS DECISIONS" in engine_prompt
     # The elimination bullet is scoped to player_elimination — absent from this digest.
     assert "eliminations don't immediately end a round" not in test_prompt
-    assert artifacts.meta["exemplar"] == "bull_run"
+    assert artifacts.meta["exemplar"] == "six_nimmt"
 
 
 def test_open_supply_digest_swaps_conservation_for_supply_bullet(rulebook):
@@ -783,8 +783,10 @@ def test_meta_records_exemplar_name_and_override(rulebook):
     assert artifacts.meta["exemplar"] == "love_letter"
 
     client = StubLLMClient([DIGEST.model_dump_json(), _fenced(GOOD_ENGINE), _fenced(GOOD_TESTS)])
-    artifacts = ingest_rulebook(rulebook, "token_duel", client=client, exemplar_override="bull_run")
-    assert artifacts.meta["exemplar"] == "bull_run"
+    artifacts = ingest_rulebook(
+        rulebook, "token_duel", client=client, exemplar_override="six_nimmt"
+    )
+    assert artifacts.meta["exemplar"] == "six_nimmt"
     engine_prompt, _ = _codegen_prompts(client)
     assert "bull_heads" in engine_prompt
 
