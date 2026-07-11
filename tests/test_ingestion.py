@@ -294,7 +294,9 @@ def test_ingest_rejects_unsafe_game_name(rulebook, tmp_path):
 def test_ingestion_fails_loudly_after_budget(rulebook):
     client = StubLLMClient([DIGEST.model_dump_json()] + [_fenced(BROKEN_ENGINE)] * 4)
     with pytest.raises(PlaytestError, match="ingestion failed after 4 attempts"):
-        ingest_rulebook(rulebook, "token_duel", max_attempts=4, client=client)
+        ingest_rulebook(
+            rulebook, "token_duel", max_attempts=4, max_digest_attempts=1, client=client
+        )
     # The digest survives for inspection.
     config_dir = Path(get_settings().game_configs_dir) / "token_duel"
     assert (config_dir / "digest.md").is_file()
@@ -454,6 +456,7 @@ def test_meta_json_has_provenance_fields(rulebook):
     assert artifacts.meta["playtest_version"] == importlib.metadata.version("playtest")
     assert artifacts.meta["mechanics"] == DIGEST.mechanics
     assert artifacts.meta["max_decisions"] == DIGEST.max_decisions
+    assert artifacts.meta["digest_attempts"] == 1
 
 
 def test_prompt_fingerprint_changes_when_prompt_constant_changes(monkeypatch):
@@ -468,15 +471,96 @@ def test_ingest_rulebook_explicit_budgets_are_respected(rulebook):
     """Explicit max_attempts/max_test_repairs still work regardless of settings."""
     client = StubLLMClient([DIGEST.model_dump_json()] + [_fenced(BROKEN_ENGINE)] * 2)
     with pytest.raises(PlaytestError, match="ingestion failed after 2 attempts"):
-        ingest_rulebook(rulebook, "token_duel", max_attempts=2, client=client)
+        ingest_rulebook(
+            rulebook, "token_duel", max_attempts=2, max_digest_attempts=1, client=client
+        )
 
 
 def test_ingest_rulebook_none_budgets_fall_back_to_settings(monkeypatch, rulebook):
     """max_attempts=None (the default) reads the budget from settings."""
     monkeypatch.setattr(get_settings(), "ingest_max_engine_attempts", 2)
+    monkeypatch.setattr(get_settings(), "ingest_max_digest_attempts", 1)
     client = StubLLMClient([DIGEST.model_dump_json()] + [_fenced(BROKEN_ENGINE)] * 2)
     with pytest.raises(PlaytestError, match="ingestion failed after 2 attempts"):
         ingest_rulebook(rulebook, "token_duel", client=client)
+
+
+def test_digest_regenerates_after_engine_budget_exhaustion(rulebook):
+    """When the engine budget exhausts, the digest is re-derived with failure
+    feedback and the engine budget retries against the fresh digest."""
+    digest_2 = DIGEST.model_copy(update={"overview": "A revised digest after codegen struggled."})
+    client = StubLLMClient(
+        [
+            DIGEST.model_dump_json(),
+            _fenced(BROKEN_ENGINE),  # digest 1, attempt 1: unparseable
+            _fenced(BROKEN_ENGINE),  # digest 1, attempt 2: unparseable, budget exhausted
+            digest_2.model_dump_json(),  # digest 2 (regenerated)
+            _fenced(GOOD_ENGINE),  # digest 2, attempt 1: good
+            _fenced(GOOD_TESTS),
+        ]
+    )
+    artifacts = ingest_rulebook(rulebook, "token_duel", max_attempts=2, client=client)
+
+    digest_calls = [c for c in client.calls if c["role"] == "digest"]
+    assert len(digest_calls) == 2
+    feedback_message = digest_calls[1]["messages"][-1]["content"]
+    assert "consecutive engine failures" in feedback_message
+    assert "does not parse" in feedback_message  # the archived engine failure text
+
+    archived_digest = artifacts.config_dir / "attempts" / "digest_01.json"
+    assert json.loads(archived_digest.read_text())["overview"] == DIGEST.overview
+
+    assert artifacts.meta["digest_attempts"] == 2
+    on_disk = json.loads((artifacts.config_dir / "digest.json").read_text())
+    assert on_disk["overview"] == digest_2.overview
+
+
+def test_digest_regeneration_exhaustion_still_raises(rulebook):
+    """If every digest attempt exhausts its engine budget, ingestion still fails
+    loudly, with the digest and all attempts left on disk."""
+    digest_2 = DIGEST.model_copy(update={"overview": "A revised digest after codegen struggled."})
+    client = StubLLMClient(
+        [
+            DIGEST.model_dump_json(),
+            _fenced(BROKEN_ENGINE),
+            _fenced(BROKEN_ENGINE),
+            digest_2.model_dump_json(),
+            _fenced(BROKEN_ENGINE),
+            _fenced(BROKEN_ENGINE),
+        ]
+    )
+    with pytest.raises(PlaytestError, match="ingestion failed after 2 attempts"):
+        ingest_rulebook(
+            rulebook, "token_duel", max_attempts=2, max_digest_attempts=2, client=client
+        )
+
+    config_dir = Path(get_settings().game_configs_dir) / "token_duel"
+    assert json.loads((config_dir / "digest.json").read_text())["overview"] == digest_2.overview
+    assert (config_dir / "attempts" / "digest_01.json").is_file()
+
+
+def test_exemplar_reselected_after_digest_regeneration(rulebook):
+    """Mechanics can change across a digest regeneration; the exemplar must be
+    re-picked, not carried over from the failed digest."""
+    digest_1 = _digest_with([])  # -> love_letter (default)
+    digest_2 = _digest_with(["simultaneous_decisions"])  # -> bull_run
+    client = StubLLMClient(
+        [
+            digest_1.model_dump_json(),
+            _fenced(BROKEN_ENGINE),
+            _fenced(BROKEN_ENGINE),
+            digest_2.model_dump_json(),
+            _fenced(GOOD_ENGINE),
+            _fenced(GOOD_TESTS),
+        ]
+    )
+    artifacts = ingest_rulebook(rulebook, "token_duel", max_attempts=2, client=client)
+
+    codegen_calls = [c for c in client.calls if c["role"] == "codegen"]
+    # index 2: the engine-generation call for digest 2's (successful) attempt 1.
+    engine_prompt = codegen_calls[2]["messages"][0]["content"]
+    assert "bull_heads" in engine_prompt
+    assert artifacts.meta["exemplar"] == "bull_run"
 
 
 def test_ingest_rulebook_threads_games_per_count_and_timeout(monkeypatch, rulebook):

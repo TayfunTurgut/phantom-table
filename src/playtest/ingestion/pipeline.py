@@ -15,8 +15,12 @@ independent verdicts and repairs are routed accordingly:
   times, before falling back to engine regeneration.
 
 Every validation round is archived under ``<config>/attempts/NN/`` for autopsy.
-Ingestion fails loudly when the engine-attempt budget is exhausted, leaving the
-digest and all attempts on disk.
+If the engine-attempt budget exhausts, the digest itself is suspect: the failed
+digest is archived (``attempts/digest_NN.json``) and re-derived with failure
+feedback, and the engine budget retries against the fresh digest, up to
+``max_digest_attempts`` total digest generations. Ingestion fails loudly only
+once every digest attempt has exhausted its engine budget, leaving the digest
+and all attempts on disk.
 """
 
 from __future__ import annotations
@@ -25,6 +29,7 @@ import importlib.metadata
 import json
 import re
 import shutil
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from itertools import count
 from pathlib import Path
@@ -106,48 +111,37 @@ def _validate_with_test_repairs(
         repairs += 1
 
 
-def ingest_rulebook(
-    rulebook_path: str,
-    game_name: str,
-    max_attempts: int | None = None,
-    max_test_repairs: int | None = None,
-    exemplar_override: str | None = None,
-    client: LLMClient | None = None,
-) -> GameArtifacts:
-    # The name becomes a directory that is rmtree'd below — reject traversal first.
-    if not re.fullmatch(r"[A-Za-z0-9_-]+", game_name):
-        raise PlaytestError(
-            f"invalid game name {game_name!r}: use only letters, digits, '_' and '-' "
-            "(it names the config directory)"
-        )
-    settings = get_settings()
-    if max_attempts is None:
-        max_attempts = settings.ingest_max_engine_attempts
-    if max_test_repairs is None:
-        max_test_repairs = settings.ingest_max_test_repairs
-    games_per_count = settings.ingest_games_per_count
-    timeout = settings.ingest_validation_timeout_seconds
-    if client is None:
-        client = create_llm_client(settings)
+@dataclass
+class _EngineOutcome:
+    """Result of one engine-attempt budget run against a fixed digest."""
 
-    rulebook_text = Path(rulebook_path).read_text(encoding="utf-8")
-    config_dir = Path(settings.game_configs_dir) / game_name
-    if config_dir.exists():
-        shutil.rmtree(config_dir)
-    config_dir.mkdir(parents=True)
-    (config_dir / "rulebook.txt").write_text(rulebook_text, encoding="utf-8")
+    ok: bool
+    attempt: int  # winning attempt number if ok, else max_attempts
+    test_repairs: int
+    feedback: str | None  # last failure feedback; None when ok
 
-    _console.print(f"[cyan]Generating digest with {client.models['digest']}...[/cyan]")
-    digest = generate_digest(client, rulebook_text)
-    save_digest(digest, config_dir)
-    digest_json = json.dumps(digest.model_dump(), indent=2)
-    exemplar_name, exemplar_source = select_exemplar(digest, exemplar_override)
-    exemplar = (exemplar_name, exemplar_source)
-    _console.print(f"[cyan]Exemplar: {exemplar_name}[/cyan]")
 
+def _generate_and_validate_engine(
+    client: LLMClient,
+    config_dir: Path,
+    digest: GameDigest,
+    digest_json: str,
+    rulebook_text: str,
+    exemplar: tuple[str, str],
+    max_attempts: int,
+    max_test_repairs: int,
+    rounds: Iterator[int],
+    games_per_count: int,
+    timeout: int,
+) -> _EngineOutcome:
+    """Generate/validate/repair an engine against a fixed digest, up to
+    ``max_attempts``. On success, ``engine.py``/``test_engine.py`` are left on
+    disk as the winning module. On exhaustion, the last failure feedback is
+    returned so the caller can decide whether to retry against a fresh digest
+    or give up.
+    """
     feedback: str | None = None
     previous_source: str | None = None
-    rounds = count(1)  # one shared sequence numbers every attempts/NN archive
     test_repairs_total = 0
     for attempt in range(1, max_attempts + 1):
         _console.print(
@@ -190,6 +184,82 @@ def ingest_rulebook(
         test_repairs_total += repairs
 
         if result.ok:
+            _console.print(
+                f"[green]Engine validated (attempt {attempt}, "
+                f"{test_repairs_total} test repair(s)).[/green]"
+            )
+            return _EngineOutcome(
+                ok=True, attempt=attempt, test_repairs=test_repairs_total, feedback=None
+            )
+
+        feedback = result.feedback
+        previous_source = engine_source
+        _console.print(f"[yellow]Attempt {attempt} failed validation; repairing.[/yellow]")
+
+    return _EngineOutcome(
+        ok=False, attempt=max_attempts, test_repairs=test_repairs_total, feedback=feedback
+    )
+
+
+def ingest_rulebook(
+    rulebook_path: str,
+    game_name: str,
+    max_attempts: int | None = None,
+    max_test_repairs: int | None = None,
+    max_digest_attempts: int | None = None,
+    exemplar_override: str | None = None,
+    client: LLMClient | None = None,
+) -> GameArtifacts:
+    # The name becomes a directory that is rmtree'd below — reject traversal first.
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", game_name):
+        raise PlaytestError(
+            f"invalid game name {game_name!r}: use only letters, digits, '_' and '-' "
+            "(it names the config directory)"
+        )
+    settings = get_settings()
+    if max_attempts is None:
+        max_attempts = settings.ingest_max_engine_attempts
+    if max_test_repairs is None:
+        max_test_repairs = settings.ingest_max_test_repairs
+    if max_digest_attempts is None:
+        max_digest_attempts = settings.ingest_max_digest_attempts
+    games_per_count = settings.ingest_games_per_count
+    timeout = settings.ingest_validation_timeout_seconds
+    if client is None:
+        client = create_llm_client(settings)
+
+    rulebook_text = Path(rulebook_path).read_text(encoding="utf-8")
+    config_dir = Path(settings.game_configs_dir) / game_name
+    if config_dir.exists():
+        shutil.rmtree(config_dir)
+    config_dir.mkdir(parents=True)
+    (config_dir / "rulebook.txt").write_text(rulebook_text, encoding="utf-8")
+
+    _console.print(f"[cyan]Generating digest with {client.models['digest']}...[/cyan]")
+    digest = generate_digest(client, rulebook_text)
+    save_digest(digest, config_dir)
+    digest_json = json.dumps(digest.model_dump(), indent=2)
+    exemplar_name, exemplar_source = select_exemplar(digest, exemplar_override)
+    exemplar = (exemplar_name, exemplar_source)
+    _console.print(f"[cyan]Exemplar: {exemplar_name}[/cyan]")
+
+    rounds = count(1)  # one shared sequence numbers every attempts/NN archive
+    for digest_attempt in range(1, max_digest_attempts + 1):
+        outcome = _generate_and_validate_engine(
+            client,
+            config_dir,
+            digest,
+            digest_json,
+            rulebook_text,
+            exemplar,
+            max_attempts,
+            max_test_repairs,
+            rounds,
+            games_per_count,
+            timeout,
+        )
+
+        if outcome.ok:
             (config_dir / "meta.json").write_text(
                 json.dumps(
                     {
@@ -201,28 +271,50 @@ def ingest_rulebook(
                         "max_decisions": digest.max_decisions,
                         "digest_model": client.models["digest"],
                         "codegen_model": client.models["codegen"],
-                        "engine_attempts": attempt,
-                        "test_repairs": test_repairs_total,
+                        "engine_attempts": outcome.attempt,
+                        "test_repairs": outcome.test_repairs,
                         "games_per_count": games_per_count,
                         "prompt_fingerprint": prompts_fingerprint(),
                         "playtest_version": importlib.metadata.version("playtest"),
                         "ingested_at": datetime.now(UTC).isoformat(),
+                        "digest_attempts": digest_attempt,
                     },
                     indent=2,
                 ),
                 encoding="utf-8",
             )
-            _console.print(
-                f"[green]Engine validated (attempt {attempt}, "
-                f"{test_repairs_total} test repair(s)).[/green]"
-            )
             return GameArtifacts(config_dir)
 
-        feedback = result.feedback
-        previous_source = engine_source
-        _console.print(f"[yellow]Attempt {attempt} failed validation; repairing.[/yellow]")
+        if digest_attempt == max_digest_attempts:
+            raise PlaytestError(
+                f"ingestion failed after {max_attempts} attempts "
+                f"(digest attempt {digest_attempt}/{max_digest_attempts}); digest and all "
+                f"attempts left in {config_dir} for inspection. Last failure:\n{outcome.feedback}"
+            )
 
-    raise PlaytestError(
-        f"ingestion failed after {max_attempts} attempts; digest and all attempts "
-        f"left in {config_dir} for inspection. Last failure:\n{feedback}"
-    )
+        # The engine budget exhausted against this digest; suspect the digest
+        # itself, archive it, and re-derive a fresh one with failure feedback.
+        attempts_dir = config_dir / "attempts"
+        attempts_dir.mkdir(parents=True, exist_ok=True)
+        (attempts_dir / f"digest_{digest_attempt:02d}.json").write_text(
+            json.dumps(digest.model_dump(), indent=2), encoding="utf-8"
+        )
+        digest_feedback = (
+            f"A previous digest led to {max_attempts} consecutive engine failures. "
+            f"Last failure:\n{outcome.feedback}\n"
+            "Re-derive the digest from the rulebook; pay special attention to state_shape, "
+            "action decomposition, and decision_flow — a simpler, flatter state shape and "
+            "more granular decision points usually fix codegen failures."
+        )
+        _console.print(
+            f"[yellow]Engine budget exhausted; regenerating digest "
+            f"(attempt {digest_attempt + 1}/{max_digest_attempts})...[/yellow]"
+        )
+        digest = generate_digest(client, rulebook_text, feedback=digest_feedback)
+        save_digest(digest, config_dir)
+        digest_json = json.dumps(digest.model_dump(), indent=2)
+        exemplar_name, exemplar_source = select_exemplar(digest, exemplar_override)
+        exemplar = (exemplar_name, exemplar_source)
+        _console.print(f"[cyan]Exemplar: {exemplar_name}[/cyan]")
+
+    raise AssertionError("unreachable: loop always returns or raises")

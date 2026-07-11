@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     # --- Ingestion budgets ---
     ingest_max_engine_attempts: int = 4
     ingest_max_test_repairs: int = 3
+    ingest_max_digest_attempts: int = 2
     ingest_games_per_count: int = 30
     ingest_validation_timeout_seconds: int = 600
 
