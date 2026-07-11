@@ -163,6 +163,7 @@ def _generate_and_validate_engine(
             )
         except PlaytestError as exc:  # unparseable code / disallowed import
             feedback = f"STAGE: code generation produced an invalid module.\n\n{exc}"
+            previous_source = None  # stale source no longer matches this failure
             _archive_attempt(config_dir, next(rounds), feedback)
             _console.print(f"[yellow]Attempt {attempt} failed generation; repairing.[/yellow]")
             continue

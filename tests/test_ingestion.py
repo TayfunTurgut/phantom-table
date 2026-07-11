@@ -276,6 +276,34 @@ def test_harness_failure_routes_to_engine_repair(rulebook):
     assert "boom at pool 3" in repair_request
 
 
+def test_generation_failure_after_harness_failure_drops_stale_source(rulebook):
+    """A harness failure records previous_source for the repair prompt; if the
+    NEXT attempt then fails at generation (not validation), that stale source
+    must not be carried forward into the attempt after that — it belongs to a
+    different, unrelated failure."""
+    client = StubLLMClient(
+        [
+            DIGEST.model_dump_json(),
+            _fenced(HARNESS_BUG_ENGINE),  # attempt 1: crashes mid-game (harness failure)
+            _fenced(GOOD_TESTS),
+            _fenced(BROKEN_ENGINE),  # attempt 2: unparseable (generation failure)
+            _fenced(GOOD_ENGINE),  # attempt 3: good
+            _fenced(GOOD_TESTS),
+        ]
+    )
+    artifacts = ingest_rulebook(rulebook, "token_duel", client=client)
+
+    assert artifacts.meta["engine_attempts"] == 3
+    # calls[0]=digest, calls[1..2]=attempt 1 (engine+tests), calls[3]=attempt 2
+    # (engine only; generation failed before tests were requested), calls[4]=
+    # attempt 3's engine request — the one that must not misattribute attempt
+    # 2's generation failure to attempt 1's stale (and unrelated) source.
+    engine_prompt_3 = client.calls[4]["messages"][-1]["content"]
+    assert "STAGE: code generation produced an invalid module" in engine_prompt_3
+    assert "FAILED VALIDATION" not in engine_prompt_3
+    assert "boom at pool 3" not in engine_prompt_3  # attempt 1's stale source marker
+
+
 def test_repair_loop_recovers_from_broken_codegen(rulebook):
     client = StubLLMClient(
         [
