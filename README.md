@@ -20,9 +20,13 @@ The architecture puts all mechanical work in code and all judgment in agents:
   Illegal moves and corrupted state are impossible by construction.
 
 The engine contract is designed for sequential, simultaneous-turn, co-op, and PvE games
-(`to_act()` returns every seat that must decide right now); sequential games are what's
-exercised today. A hand-written reference engine ships in `playtest.games` and serves
-as the codegen exemplar and a permanent test fixture.
+(`to_act()` returns every seat that must decide right now), and teaches two idioms that
+unlock harder families: reaction/"may respond" windows flattened into explicit decision
+points, and combinatorial choices staged into consecutive smaller menus. Two
+hand-written reference engines ship in `playtest.games` — `love_letter` (sequential,
+hidden hands) and `bull_run` (simultaneous commits, mid-resolution phase machine) —
+serving as codegen exemplars and permanent test fixtures; ingestion picks the exemplar
+that matches the digest's mechanics.
 
 This project uses [uv](https://docs.astral.sh/uv/) as its package manager and task
 runner. Install it first if you haven't:
@@ -150,12 +154,27 @@ engine generation and the player agents — ingest each mode as its own game
 | `test_engine.py` | The generated pytest suite anchored to the digest's rules |
 | `player_briefing.txt` | Rules summary injected into player agents' prompts |
 | `rulebook.txt` | The raw rulebook, injected in full into player prompts so agents can consult the exact rules |
-| `meta.json` | Models used, validation attempt count, timestamp |
+| `meta.json` | Models used, exemplar and prompt fingerprint, attempt counts, per-game decision budget, timestamp |
 
-Validation runs in subprocesses: the generated tests must pass and the contract
-harness must complete random self-play across all supported player counts with
-identical replays per seed. On failure, the full diagnostic is fed back to the
-codegen model and the engine is regenerated (up to 4 attempts).
+The digest tags the game's structural `mechanics` (simultaneous decisions,
+reaction windows, multi-stage turns, open supplies, boards, ...). Those tags
+pick which hand-written reference engine is embedded in the codegen prompt as
+the exemplar — `love_letter` for sequential hidden-hand games, `bull_run` (a
+simultaneous-commit engine with a mid-resolution phase machine) for
+simultaneous/staged/reaction games — and switch mechanic-specific guidance
+blocks in the engine and test prompts. Override the routing with
+`ingest --exemplar <name>` if a digest mis-tags.
+
+Validation runs in subprocesses: generated code is first ruff-checked for
+outright errors, then the contract harness must complete random self-play
+across all supported player counts with identical replays per seed (and no
+legal-action menu larger than 100 — oversized menus are sent back with "split
+this into staged decisions" feedback), then the generated tests must pass. On
+failure, the full diagnostic is fed back to the codegen model and the engine
+is regenerated (default 4 attempts, `--max-attempts`); if every engine attempt
+fails, the digest itself is re-derived with the failure feedback and the
+engine budget starts over (default 2 digest attempts). Transient `claude -p`
+failures are retried inside the LLM client, for every role.
 
 Rulebooks are inputs you supply at ingest time — point `--rulebook` at any text file
 (`rulebooks/` holds the ones used during development). The generated `game_configs/`
@@ -233,8 +252,14 @@ codegen if your plan allows. Each call adds ~1-2s of CLI spawn overhead.
 Players consult the rules by reading the **full rulebook text**, injected
 directly into their prompt (no vector search / RAG). Other knobs:
 `CLAUDE_CLI_PATH` (default `claude`), `GAME_CONFIGS_DIR` (where generated games
-live), `MAX_STEPS` (default 1000, a crashing ceiling on decisions per session),
-and `LLM_TIMEOUT_SECONDS` (default 900).
+live), `MAX_STEPS` (default 1000, the fallback crashing ceiling on decisions per
+session — generated games carry their own budget in `meta.json` as
+`max_decisions`, derived from the digest and floored at 3x the longest
+validation self-play), `LLM_TIMEOUT_SECONDS` (default 900), transient-failure
+retry (`LLM_RETRY_ATTEMPTS` / `LLM_RETRY_BACKOFF_SECONDS`), and the ingestion
+budgets (`INGEST_MAX_ENGINE_ATTEMPTS`, `INGEST_MAX_TEST_REPAIRS`,
+`INGEST_MAX_DIGEST_ATTEMPTS`, `INGEST_GAMES_PER_COUNT`,
+`INGEST_VALIDATION_TIMEOUT_SECONDS`).
 
 ## Development
 

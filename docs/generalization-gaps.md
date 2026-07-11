@@ -1,110 +1,116 @@
-# Generalization gaps: from Love Letter to >90% of BGG
+# Generalization status: toward >80% of BGG
 
-An honest assessment of what currently blocks simulating most board games, with
-the smallest blocking component named for each gap. The engine **contract** is
-already general; the gaps are concentrated in the **codegen layer** and a few
-structural assumptions.
+An honest assessment of what blocks simulating most board games. Updated after
+the July 2026 generalization push, which closed the four gaps the previous
+version of this document named. The engine **contract** was already general;
+the push fixed the **codegen layer** and the structural caps around it.
 
-## What already generalizes (verified)
+## What now generalizes (implemented and test-pinned)
 
-- **Multi-seat / simultaneous decisions.** The contract allows `to_act()` to
-  return several seats (`src/playtest/engine/__init__.py`, contract point 3),
-  and the harness (`src/playtest/engine/contract.py`) and session loop
-  (`src/playtest/session.py`) handle it: one decision per acting seat against
-  the same pre-step state, applied as a batch. This is now a *tested* property
-  (`tests/test_simultaneous.py`), including information isolation — same-step
-  table talk is broadcast only after every acting seat has committed.
-- **Co-op and PvE.** Contract point 8 defines co-op winner semantics; automa
-  behavior is deterministic logic inside `apply` (point 3). `GameStatus`
-  carries winners/scores with no card-game assumptions.
-- **The runtime loop, agents, and analytics** are game-agnostic: they treat
-  observations, legal actions, and events as opaque.
+- **Multi-seat / simultaneous decisions.** Contract point 3 + the session loop
+  handle multi-seat `to_act` with same-step information isolation
+  (`tests/test_simultaneous.py`). The push added a *shipped* simultaneous
+  engine: `playtest.games.bull_run` (6 nimmt!-style — simultaneous face-down
+  commits, batch apply, a mid-resolution `choose_row` phase machine), with a
+  34-test acceptance suite and contract-harness fuzzing at every player count.
+- **Exemplar routing (was gap #1, the big one).** Codegen no longer embeds
+  Love Letter unconditionally with "match precisely". The digest emits
+  constrained `mechanics` tags; `select_exemplar`
+  (`src/playtest/ingestion/codegen.py`) routes simultaneous / multi-stage /
+  reaction games to the `bull_run` exemplar and everything else to
+  `love_letter`, with a `--exemplar` CLI override. The engine prompt now says
+  the digest, not the exemplar, defines the game, lists the binding
+  CONVENTIONS explicitly, and appends mechanic-conditional guidance blocks
+  (with literal code sketches for the pending-window and staged-decision
+  patterns). The test prompt is de-Love-Letter-ified the same way:
+  component-conservation advice disappears for `open_supply` games,
+  elimination advice appears only under `player_elimination`, and the
+  AUTO-ADVANCE TRAP is schematic rather than Priest/Princess-specific.
+- **Reaction windows (was gap #2).** The contract docstring (point 5) now
+  teaches the flattening pattern — pending action in state, responders from
+  `to_act`, explicit decline, resolve/cancel when the window closes — plus the
+  hidden-info rule that windows are offered by rules eligibility, never by
+  hand contents (being asked is itself information). The pattern is pinned by
+  an inline reference engine (`tests/test_reactions.py`: sequential priority
+  window, counter-nope stack, decline-only-menu info-leak property, checkpoint
+  resume mid-window) and taught in both digest and codegen prompts.
+- **Large action spaces (was gap #3).** The contract docstring (point 4)
+  teaches staged decisions (~50-action menu guideline); the contract harness
+  measures the largest menu an engine ever presents and ingestion validation
+  fails generated engines above 100 with "split this into staged decisions"
+  repair feedback. Hand-written engines are unaffected. Pinned by
+  `tests/test_staged.py` (staged open-auction engine: same-seat consecutive
+  decisions, bound amount menus, whole-bid event at final stage, checkpoint
+  resume mid-stage).
+- **Digest schema (was gap #4).** `GameDigest` gained `mechanics` (the tag
+  vocabulary that conditions codegen), `zones` (a prose home for boards, maps,
+  tracks, markets, and open supplies, with visibility and conservation notes),
+  and `max_decisions` (a per-game decision budget). `components` is now
+  explicitly only fixed-count pieces. Old configs still load (defaults), while
+  generation requires every field.
+- **Ingestion robustness.** Transient `claude -p` failures retry inside the
+  LLM client for all roles (a blip no longer kills a 20-minute ingest); when
+  every engine attempt fails, the digest itself is regenerated with the
+  failure feedback and the engine budget restarts; generated code passes a
+  ruff error gate (undefined names, syntax) before any expensive validation,
+  and generation-stage failures now reach the next engine prompt as feedback;
+  budgets are `Settings`/CLI-configurable; `meta.json` records the exemplar,
+  mechanics, attempt counts per stage, a prompt fingerprint (covering the live
+  contract docstring, both exemplar sources, all guidance blocks and feedback
+  templates, and the digest schema), and the package version.
+- **Structural caps.** Seat colors cycle a 12-color palette (any player
+  count); the session step budget is per-game (`max_decisions` from meta.json,
+  floored during validation at 3x the longest observed self-play so a
+  low-balled digest can't crash real playtests), with `MAX_STEPS` as the
+  global fallback; sessions checkpoint every turn and can resume mid-window
+  and mid-stage (test-pinned).
 
-Caveat: no shipped or *generated* engine uses simultaneity yet. The first real
-simultaneous-game ingestion (e.g., a drafting or sealed-bid game) is the true
-end-to-end test.
+## Validation status
 
-## Gaps
+Offline: 207 tests pass, ruff and mypy clean. End-to-end (real ingests):
 
-### 1. Single codegen exemplar (the big one)
+| Game | Purpose | Status |
+|---|---|---|
+| Love Letter (re-ingest) | sequential-path regression | **passed** — validated on engine attempt 1 (1 test repair), matching its historical run. Note: the digest tagged `multi_stage_turns` (card→target→guess), routing it to the `bull_run` exemplar — a mis-route per intent that nonetheless generated a working engine first try; evidence for tightening the `multi_stage_turns` one-liner (tag only when a single menu would be impractically large, not merely multi-parameter) |
+| Hanabi (re-ingest) | co-op regression | interrupted mid-run — its `game_configs/hanabi/` dir was wiped by the re-ingest start and now needs `uv run playtest ingest --rulebook rulebooks/hanabi.txt --name hanabi` re-run before Hanabi can be played |
+| Sushi Go | first generated simultaneous-drafting engine (headline proof of exemplar routing) | awaiting rulebook |
+| Coup | reaction/challenge windows end-to-end | awaiting rulebook |
+| For Sale (or High Society) | staged open bidding under the menu cap | awaiting rulebook |
+| Splendor | open supply + market display (zones / de-conserved tests) | awaiting rulebook |
 
-Blocking component: `src/playtest/ingestion/codegen.py`.
+Prepare the pending rulebooks with the README's rulebook prompt and drop them
+in `rulebooks/`, then `uv run playtest ingest --rulebook rulebooks/<game>.txt
+--name <game>`.
 
-- `_reference_engine_source()` embeds the full Love Letter module and the
-  engine prompt demands matching "its style, structure, and conventions
-  precisely". For games unlike Love Letter (no hands, no elimination, no
-  rounds, simultaneous commits) the exemplar contradicts the digest, biasing
-  generated engines toward small sequential card games.
-- The test-generation prompt is saturated with Love Letter idioms: "verify
-  setup deals correctly", elimination advice ("use enough players that
-  eliminations don't immediately end a round"), and AUTO-ADVANCE examples
-  naming Priest/Princess/hands/redeals. The `validate.py` repair hint likewise
-  says "the next player has already auto-drawn".
-- Component-conservation test guidance assumes fixed pools; many games create
-  or destroy resources from an open supply.
-
-Likely fix when ingesting game #2: make the exemplar/test-hint text
-mechanic-conditional (or maintain a small exemplar library per game family:
-trick-taking, drafting, worker placement, deck builder) and soften "match
-precisely" to "match the conventions listed below".
-
-### 2. No reaction-window / interrupt mechanism
-
-Blocking component: the engine contract (`apply` auto-advance, point 5).
-
-`apply` resolves and auto-advances to the next decision point; there is no way
-to interrupt mid-resolution. Reaction mechanics (Nope cards, instants, "may
-respond" windows) must be *flattened into discrete `to_act` decision points* by
-the generated engine — possible, but the codegen prompt never tells the model
-this pattern, so it is unlikely to emerge reliably.
-
-### 3. Full enumeration of legal actions
-
-Blocking component: contract point 4 + `agents/player.py` menu prompt.
-
-`legal_actions` must enumerate every fully-bound action, and the player agent
-renders them as a numbered menu. This blows up for combinatorial action spaces:
-open-ended placement (Go, many area-control games), multi-part turns (move N
-units along any path), auctions with arbitrary bid amounts. Needs either action
-templates with parameter sub-decisions, or staged decision points.
-
-### 4. Digest schema leans hidden-info-card-game
-
-Blocking component: `src/playtest/ingestion/schemas.py`.
-
-`components` ("conserved physical pieces") and `hidden_zones` fit card/tile
-games well; `decision_flow` does ask for "simultaneity, reaction windows".
-Mostly prose so it bends, but games with persistent boards, maps, or open
-supplies have no natural home in the schema — the digest model will improvise
-inconsistently.
-
-### 5. Smaller structural caps
-
-- `PLAYER_COLORS` styles 6 seats (`src/playtest/ui/observer.py`); extra seats
-  render white. Cosmetic.
-- `max_steps=1000` per session (`config.py`); long engines that auto-advance
-  poorly will hit it. The cap is configurable.
-- Determinism: engines are seed-deterministic (contract points 2, 4), but LLM
-  player decisions are not — only scripted-player replays reproduce exactly
-  (`tests/test_session.py::test_session_is_deterministic_with_scripted_players`).
-
-## Coverage verdict for the >90% BGG target
-
-**Coverable now:** sequential turn-based games with hidden or perfect
-information and enumerable actions — most card games, roll-and-move, set
-collection, simple economic/engine builders, tableau games. Simultaneous-reveal
-games are supported by the runtime but unproven through codegen.
-
-**Blocked, by gap:**
+## Remaining gaps (deferred by design)
 
 | Game family | Blocking gap |
 |---|---|
-| Drafting / sealed bids / simultaneous programming (7 Wonders, RoboRally) | #1 (codegen has no simultaneous exemplar); runtime is ready |
-| Reaction/interrupt-heavy games (Exploding Kittens, Magic-likes) | #2 |
-| Huge/combinatorial action spaces (Go, wargames, open auctions) | #3 |
 | Negotiation/free-deal games (Diplomacy, Catan trades) | free-form binding deals exceed `table_talk`; needs a deal protocol |
 | Real-time / dexterity (Jenga, Klask) | out of scope by design |
 | Legacy/campaign state | no cross-game persistence; out of scope for now |
 
-The highest-leverage next step is gap #1: it is prompt text, not architecture,
-and it gates every game family the runtime can already host.
+Smaller known items, in priority order for a future pass:
+
+- The `max_decisions = 0` fallback path skips the validation-time floor
+  (`settings.max_steps` is assumed big enough); tighten if a 0-budget digest
+  ever appears in practice.
+- Simultaneous reaction *windows* (everyone may nope at once) are taught but
+  only the sequential-priority default is reference-tested; the first truly
+  simultaneous-window ingest is a known unknown.
+- Mechanic-tag one-liners may under-select in two spots (static market
+  displays vs `board_or_map`; occasional conditional stages vs
+  `multi_stage_turns`) — tune from real ingest transcripts, not
+  preemptively.
+- A persistently-failing LLM backend is fed into the repair loop as if it
+  were bad generated code (burns budgets before surfacing); distinguishing
+  transport from content errors would fail faster.
+- Notebook-only player memory will strain very long/heavy-state games (18xx
+  class); revisit if such a game is ever targeted.
+
+## Tuning feedback loop
+
+Bulk runs log `num_legal_actions` per decision and `player_confusion` events;
+the harness records the max menu seen. Use those to tune the ~50 menu
+guideline / 100 hard cap and the mechanic-tag wording once several real games
+are ingested.
