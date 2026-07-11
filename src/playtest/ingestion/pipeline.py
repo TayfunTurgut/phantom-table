@@ -55,6 +55,52 @@ if TYPE_CHECKING:
 
 _console = Console()
 
+# How much headroom the persisted per-game decision budget keeps over the longest
+# random self-play game the contract harness observed. Random self-play tends to
+# meander at least as long as directed play, so 3x its measured max is a safe
+# floor: a validated game must never die at runtime purely because the digest's
+# max_decisions guessed low.
+_MAX_DECISIONS_SAFETY_FACTOR = 3
+
+# Feedback fed back into the codegen prompt when generation produced code that
+# doesn't parse / imports outside the allowlist (a prompt-shaping string — see
+# codegen.prompts_fingerprint).
+_CODEGEN_INVALID_MODULE_FEEDBACK = "STAGE: code generation produced an invalid module.\n\n{exc}"
+
+# Feedback fed back into the digest prompt after the engine budget exhausted
+# against a digest (a prompt-shaping string — see codegen.prompts_fingerprint).
+_DIGEST_FEEDBACK_TEMPLATE = (
+    "A previous digest led to {max_attempts} consecutive engine failures. "
+    "Last failure:\n{feedback}\n"
+    "Re-derive the digest from the rulebook; pay special attention to state_shape, "
+    "action decomposition, and decision_flow — a simpler, flatter state shape and "
+    "more granular decision points usually fix codegen failures."
+)
+
+
+def _validated_max_decisions(digest_max_decisions: int, max_steps_seen: int) -> int:
+    """The per-game decision budget to persist in meta.json.
+
+    The digest's ``max_decisions`` is a model guess. If it is below the floor the
+    contract harness measured (the longest random self-play game × a safety
+    factor), inflate it to that floor with a warning: a game that PASSED
+    validation must never crash at runtime purely because the digest guessed low.
+    A declared budget of 0 means "use the global settings.max_steps ceiling" and
+    is left untouched (that ceiling is already a safe, large fallback).
+    """
+    if digest_max_decisions <= 0:
+        return digest_max_decisions
+    floor = max_steps_seen * _MAX_DECISIONS_SAFETY_FACTOR
+    if digest_max_decisions < floor:
+        _console.print(
+            f"[yellow]Digest max_decisions={digest_max_decisions} is below the "
+            f"validated floor (random self-play reached {max_steps_seen} decisions "
+            f"× {_MAX_DECISIONS_SAFETY_FACTOR} headroom = {floor}); inflating "
+            f"meta.json max_decisions to {floor}.[/yellow]"
+        )
+        return floor
+    return digest_max_decisions
+
 
 def _archive_attempt(config_dir: Path, index: int, failure: str) -> None:
     """Snapshot the current engine/tests plus the failure text for autopsy."""
@@ -119,6 +165,7 @@ class _EngineOutcome:
     attempt: int  # winning attempt number if ok, else max_attempts
     test_repairs: int
     feedback: str | None  # last failure feedback; None when ok
+    max_steps_seen: int = 0  # longest harness self-play game on the winning attempt
 
 
 def _generate_and_validate_engine(
@@ -162,7 +209,7 @@ def _generate_and_validate_engine(
                 client, digest, digest_json, engine_source, feedback=feedback
             )
         except PlaytestError as exc:  # unparseable code / disallowed import
-            feedback = f"STAGE: code generation produced an invalid module.\n\n{exc}"
+            feedback = _CODEGEN_INVALID_MODULE_FEEDBACK.format(exc=exc)
             previous_source = None  # stale source no longer matches this failure
             _archive_attempt(config_dir, next(rounds), feedback)
             _console.print(f"[yellow]Attempt {attempt} failed generation; repairing.[/yellow]")
@@ -190,7 +237,11 @@ def _generate_and_validate_engine(
                 f"{test_repairs_total} test repair(s)).[/green]"
             )
             return _EngineOutcome(
-                ok=True, attempt=attempt, test_repairs=test_repairs_total, feedback=None
+                ok=True,
+                attempt=attempt,
+                test_repairs=test_repairs_total,
+                feedback=None,
+                max_steps_seen=result.max_steps_seen,
             )
 
         feedback = result.feedback
@@ -261,6 +312,7 @@ def ingest_rulebook(
         )
 
         if outcome.ok:
+            max_decisions = _validated_max_decisions(digest.max_decisions, outcome.max_steps_seen)
             (config_dir / "meta.json").write_text(
                 json.dumps(
                     {
@@ -269,7 +321,7 @@ def ingest_rulebook(
                         "max_players": digest.max_players,
                         "mechanics": digest.mechanics,
                         "exemplar": exemplar_name,
-                        "max_decisions": digest.max_decisions,
+                        "max_decisions": max_decisions,
                         "digest_model": client.models["digest"],
                         "codegen_model": client.models["codegen"],
                         "engine_attempts": outcome.attempt,
@@ -300,12 +352,8 @@ def ingest_rulebook(
         (attempts_dir / f"digest_{digest_attempt:02d}.json").write_text(
             json.dumps(digest.model_dump(), indent=2), encoding="utf-8"
         )
-        digest_feedback = (
-            f"A previous digest led to {max_attempts} consecutive engine failures. "
-            f"Last failure:\n{outcome.feedback}\n"
-            "Re-derive the digest from the rulebook; pay special attention to state_shape, "
-            "action decomposition, and decision_flow — a simpler, flatter state shape and "
-            "more granular decision points usually fix codegen failures."
+        digest_feedback = _DIGEST_FEEDBACK_TEMPLATE.format(
+            max_attempts=max_attempts, feedback=outcome.feedback
         )
         _console.print(
             f"[yellow]Engine budget exhausted; regenerating digest "

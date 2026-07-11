@@ -132,7 +132,7 @@ def test_session_crashes_when_max_steps_exceeded():
         "player_1": ScriptedPlayer("player_1"),
         "player_2": ScriptedPlayer("player_2"),
     }
-    with pytest.raises(PlaytestError, match="max_steps"):
+    with pytest.raises(PlaytestError, match="per-game max_decisions from meta.json") as exc:
         run_session(
             Stuck(),
             players,
@@ -142,7 +142,9 @@ def test_session_crashes_when_max_steps_exceeded():
             seed=0,
             session_id="t",
             max_steps=10,
+            max_steps_source="per-game max_decisions from meta.json",
         )
+    assert "max_steps=10" in str(exc.value)
 
 
 def test_confused_decision_is_logged():

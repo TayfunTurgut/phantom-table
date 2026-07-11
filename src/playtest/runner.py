@@ -47,13 +47,15 @@ def resolve_game(game_ref: str) -> tuple[GameEngine, Path | None]:
     return engine, None
 
 
-def _effective_max_steps(config_dir: Path | None, settings: Settings) -> int:
+def _effective_max_steps(config_dir: Path | None, settings: Settings) -> tuple[int, str]:
     """Prefer the per-game decision budget declared in the game's meta.json.
 
-    Falls back to ``settings.max_steps`` (the global crash ceiling) when there's
-    no config dir (e.g. module-ref games), no meta.json, no/zero
-    ``max_decisions``, or the meta.json can't be read — provenance metadata
-    should never be able to crash a playtest.
+    Returns ``(budget, source)`` where ``source`` is a human-readable label naming
+    where the budget came from (so a max_steps crash can say so). Falls back to
+    ``settings.max_steps`` (the global crash ceiling) when there's no config dir
+    (e.g. module-ref games), no meta.json, no/zero ``max_decisions``, or the
+    meta.json can't be read — provenance metadata should never be able to crash a
+    playtest.
     """
     if config_dir is not None:
         meta_path = config_dir / "meta.json"
@@ -64,8 +66,8 @@ def _effective_max_steps(config_dir: Path | None, settings: Settings) -> int:
             except (json.JSONDecodeError, OSError):
                 max_decisions = 0
             if isinstance(max_decisions, int) and max_decisions > 0:
-                return max_decisions
-    return settings.max_steps
+                return max_decisions, "per-game max_decisions from meta.json"
+    return settings.max_steps, "settings.max_steps (no per-game max_decisions in meta.json)"
 
 
 def _make_players(
@@ -135,6 +137,8 @@ def run_game(
     logger = GameLogger()
     logger.set_run_metadata(archetypes=archetypes)
 
+    max_steps, max_steps_source = _effective_max_steps(config_dir, settings)
+
     # Crash early: any EngineCrash / PlaytestError propagates. The finally block
     # persists whatever was logged so a crashed run is still inspectable.
     try:
@@ -146,7 +150,8 @@ def run_game(
             num_players=num_players,
             seed=seed,
             session_id=session_id,
-            max_steps=_effective_max_steps(config_dir, settings),
+            max_steps=max_steps,
+            max_steps_source=max_steps_source,
             checkpoint_path=checkpoint_path,
             game_ref=game_ref,
             archetypes=archetypes,
@@ -187,6 +192,8 @@ def resume_game(
     logger = GameLogger()
     logger.set_run_metadata(archetypes=cp.archetypes)
 
+    max_steps, max_steps_source = _effective_max_steps(config_dir, settings)
+
     console.print(
         f"[cyan]Resuming {engine.game_name} from step {cp.step}[/cyan] "
         f"(checkpoint {checkpoint_path})"
@@ -200,7 +207,8 @@ def resume_game(
             num_players=cp.num_players,
             seed=cp.seed,
             session_id=cp.session_id,
-            max_steps=_effective_max_steps(config_dir, settings),
+            max_steps=max_steps,
+            max_steps_source=max_steps_source,
             checkpoint_path=checkpoint_path,
             game_ref=cp.game_ref,
             archetypes=cp.archetypes,

@@ -32,7 +32,7 @@ from playtest.ingestion.digest import (
 )
 from playtest.ingestion.pipeline import ingest_rulebook
 from playtest.ingestion.schemas import GameArtifacts, GameDigest
-from playtest.ingestion.validate import _clip
+from playtest.ingestion.validate import _clip, validate_engine
 
 from .stubs import StubLLMClient
 
@@ -534,6 +534,51 @@ def test_meta_json_has_provenance_fields(rulebook):
     assert artifacts.meta["digest_attempts"] == 1
 
 
+def test_validate_engine_reports_max_steps_seen(tmp_path):
+    """The contract harness measures the longest self-play game and validate_engine
+    surfaces it so the pipeline can floor the runtime decision budget."""
+    (tmp_path / "engine.py").write_text(GOOD_ENGINE, encoding="utf-8")
+    (tmp_path / "test_engine.py").write_text(GOOD_TESTS, encoding="utf-8")
+    result = validate_engine(tmp_path, games_per_count=30, timeout=120)
+    assert result.ok
+    # Token Duel: pool of 7, take 1-2 per turn -> every game is 4-7 decisions long.
+    assert 4 <= result.max_steps_seen <= 7
+
+
+def test_validated_max_decisions_inflates_when_digest_guessed_low():
+    from playtest.ingestion.pipeline import _MAX_DECISIONS_SAFETY_FACTOR, _validated_max_decisions
+
+    assert _validated_max_decisions(5, 7) == 7 * _MAX_DECISIONS_SAFETY_FACTOR
+    assert _validated_max_decisions(20, 7) == 21  # 20 < 21
+
+
+def test_validated_max_decisions_keeps_generous_budget():
+    from playtest.ingestion.pipeline import _validated_max_decisions
+
+    assert _validated_max_decisions(70, 7) == 70  # already above the 21 floor
+
+
+def test_validated_max_decisions_leaves_zero_budget_untouched():
+    from playtest.ingestion.pipeline import _validated_max_decisions
+
+    # 0 means "use settings.max_steps at runtime" — a safe ceiling, never inflated.
+    assert _validated_max_decisions(0, 7) == 0
+
+
+def test_ingest_inflates_meta_max_decisions_when_digest_guessed_low(rulebook):
+    """A validated game must never die at runtime because the digest guessed low:
+    a too-small max_decisions is inflated to the harness-measured floor in meta.json."""
+    from playtest.ingestion.pipeline import _MAX_DECISIONS_SAFETY_FACTOR
+
+    tiny = DIGEST.model_copy(update={"max_decisions": 3})
+    client = StubLLMClient([tiny.model_dump_json(), _fenced(GOOD_ENGINE), _fenced(GOOD_TESTS)])
+    artifacts = ingest_rulebook(rulebook, "token_duel", client=client)
+
+    # Shortest Token Duel game is 4 decisions, so the floor is at least 4*factor.
+    assert artifacts.meta["max_decisions"] >= 4 * _MAX_DECISIONS_SAFETY_FACTOR
+    assert artifacts.meta["max_decisions"] % _MAX_DECISIONS_SAFETY_FACTOR == 0
+
+
 def test_prompt_fingerprint_changes_when_prompt_constant_changes(monkeypatch):
     before = prompts_fingerprint()
     monkeypatch.setattr(codegen, "_ENGINE_SYSTEM_PROMPT", codegen._ENGINE_SYSTEM_PROMPT + " ")
@@ -753,4 +798,52 @@ def test_fingerprint_changes_when_contract_docstring_changes(monkeypatch):
 def test_fingerprint_changes_when_exemplar_source_changes(monkeypatch):
     before = prompts_fingerprint()
     monkeypatch.setattr(codegen, "_all_exemplar_sources", lambda: ["changed source"])
+    assert prompts_fingerprint() != before
+
+
+def test_fingerprint_changes_when_tests_may_be_wrong_hint_changes(monkeypatch):
+    from playtest.ingestion import validate
+
+    before = prompts_fingerprint()
+    monkeypatch.setattr(
+        validate, "_TESTS_MAY_BE_WRONG_HINT", validate._TESTS_MAY_BE_WRONG_HINT + " X"
+    )
+    assert prompts_fingerprint() != before
+
+
+def test_fingerprint_changes_when_test_feedback_only_section_changes(monkeypatch):
+    before = prompts_fingerprint()
+    monkeypatch.setattr(
+        codegen, "_TEST_FEEDBACK_ONLY_SECTION", codegen._TEST_FEEDBACK_ONLY_SECTION + " X"
+    )
+    assert prompts_fingerprint() != before
+
+
+def test_fingerprint_changes_when_pipeline_feedback_templates_change(monkeypatch):
+    before = prompts_fingerprint()
+    monkeypatch.setattr(
+        pipeline,
+        "_CODEGEN_INVALID_MODULE_FEEDBACK",
+        pipeline._CODEGEN_INVALID_MODULE_FEEDBACK + " X",
+    )
+    after = prompts_fingerprint()
+    assert after != before
+
+    monkeypatch.setattr(
+        pipeline, "_DIGEST_FEEDBACK_TEMPLATE", pipeline._DIGEST_FEEDBACK_TEMPLATE + " X"
+    )
+    assert prompts_fingerprint() != after
+
+
+def test_fingerprint_changes_when_digest_schema_changes(monkeypatch):
+    """A new MechanicTag (or any digest schema change) must move the fingerprint."""
+    before = prompts_fingerprint()
+    real_schema = GameDigest.model_json_schema
+
+    def _mutated_schema(*args, **kwargs):
+        schema = real_schema()
+        schema["title"] = "MutatedDigest"
+        return schema
+
+    monkeypatch.setattr(GameDigest, "model_json_schema", _mutated_schema)
     assert prompts_fingerprint() != before

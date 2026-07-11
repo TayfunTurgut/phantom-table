@@ -16,6 +16,7 @@ right target with the right evidence.
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -33,8 +34,11 @@ from playtest.engine.contract import assert_engine_contract
 from playtest.engine.loader import load_engine_from_path
 
 engine = load_engine_from_path(Path(sys.argv[1]))
-assert_engine_contract(engine, games_per_count=int(sys.argv[2]), max_menu_size=int(sys.argv[3]))
-print("contract OK")
+trajectories = assert_engine_contract(
+    engine, games_per_count=int(sys.argv[2]), max_menu_size=int(sys.argv[3])
+)
+max_steps = max((len(t.steps) for t in trajectories), default=0)
+print(f"contract OK; max_steps_seen={max_steps}")
 """
 
 _TESTS_MAY_BE_WRONG_HINT = (
@@ -54,6 +58,10 @@ class ValidationResult:
     harness_ok: bool
     tests_ok: bool
     feedback: str  # "" when both gates pass
+    # Longest random self-play game the harness observed (0 when the harness
+    # failed or its output couldn't be parsed). The pipeline uses it as a floor
+    # for the per-game decision budget so a validated game never dies at runtime.
+    max_steps_seen: int = 0
 
     @property
     def ok(self) -> bool:
@@ -96,6 +104,11 @@ def validate_engine(
         timeout=timeout,
     )
     harness_ok = harness.returncode == 0
+    max_steps_seen = 0
+    if harness_ok:
+        match = re.search(r"max_steps_seen=(\d+)", harness.stdout)
+        if match:
+            max_steps_seen = int(match.group(1))
 
     tests = subprocess.run(
         [
@@ -128,5 +141,8 @@ def validate_engine(
         sections.append(f"{header}\n\n{_clip(tests.stdout)}\n{_clip(tests.stderr, 2000)}")
 
     return ValidationResult(
-        harness_ok=harness_ok, tests_ok=tests_ok, feedback="\n\n".join(sections)
+        harness_ok=harness_ok,
+        tests_ok=tests_ok,
+        feedback="\n\n".join(sections),
+        max_steps_seen=max_steps_seen,
     )

@@ -44,35 +44,41 @@ def test_run_game_rejects_archetype_mismatch():
 
 def test_effective_max_steps_prefers_meta_max_decisions(tmp_path):
     (tmp_path / "meta.json").write_text(json.dumps({"max_decisions": 77}), encoding="utf-8")
-    assert _effective_max_steps(tmp_path, get_settings()) == 77
+    steps, source = _effective_max_steps(tmp_path, get_settings())
+    assert steps == 77
+    assert "meta.json" in source
 
 
 def test_effective_max_steps_no_config_dir_falls_back():
     settings = get_settings()
-    assert _effective_max_steps(None, settings) == settings.max_steps
+    steps, source = _effective_max_steps(None, settings)
+    assert steps == settings.max_steps
+    assert "settings.max_steps" in source
 
 
 def test_effective_max_steps_missing_meta_json_falls_back(tmp_path):
     settings = get_settings()
-    assert _effective_max_steps(tmp_path, settings) == settings.max_steps
+    steps, source = _effective_max_steps(tmp_path, settings)
+    assert steps == settings.max_steps
+    assert "settings.max_steps" in source
 
 
 def test_effective_max_steps_zero_max_decisions_falls_back(tmp_path):
     (tmp_path / "meta.json").write_text(json.dumps({"max_decisions": 0}), encoding="utf-8")
     settings = get_settings()
-    assert _effective_max_steps(tmp_path, settings) == settings.max_steps
+    assert _effective_max_steps(tmp_path, settings)[0] == settings.max_steps
 
 
 def test_effective_max_steps_old_meta_without_key_falls_back(tmp_path):
     (tmp_path / "meta.json").write_text(json.dumps({"game_name": "Old Game"}), encoding="utf-8")
     settings = get_settings()
-    assert _effective_max_steps(tmp_path, settings) == settings.max_steps
+    assert _effective_max_steps(tmp_path, settings)[0] == settings.max_steps
 
 
 def test_effective_max_steps_malformed_meta_json_falls_back(tmp_path):
     (tmp_path / "meta.json").write_text("{not json", encoding="utf-8")
     settings = get_settings()
-    assert _effective_max_steps(tmp_path, settings) == settings.max_steps
+    assert _effective_max_steps(tmp_path, settings)[0] == settings.max_steps
 
 
 def _spy_run_session(monkeypatch):

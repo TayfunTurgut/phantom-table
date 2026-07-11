@@ -52,6 +52,7 @@ def run_session(
     seed: int,
     session_id: str,
     max_steps: int = 1000,
+    max_steps_source: str = "the configured step budget",
     checkpoint_path: str | None = None,
     game_ref: str | None = None,
     archetypes: list[str] | None = None,
@@ -181,7 +182,10 @@ def run_session(
 
         emit(events, step=step)
     else:
-        raise PlaytestError(f"session exceeded max_steps={max_steps} without the game ending")
+        raise PlaytestError(
+            f"session exceeded max_steps={max_steps} (budget source: {max_steps_source}) "
+            "without the game ending"
+        )
 
     status = engine.status(state)
     logger.log_event(

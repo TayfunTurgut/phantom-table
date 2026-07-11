@@ -143,11 +143,20 @@ def lint_source(source: str, filename: str) -> None:
 _GUIDANCE_BLOCKS: dict[MechanicTag, str] = {
     "simultaneous_decisions": """\
 SIMULTANEOUS DECISIONS. Several seats choose at once. `to_act` returns EVERY seat
-that must commit this step, and a SINGLE `apply` call receives one action per
-those seats and resolves them together. Store each seat's committed choice under
-a state key (e.g. state["committed"][seat]) and hide it from the OTHER seats'
-`observe` until the reveal: a seat sees its own commitment in the clear, others
-see only whether that seat has committed.""",
+that must commit this step. Two models — pick the one your game actually is:
+
+DEFAULT (single-apply): every acting seat decides against the SAME pre-step state,
+and ONE `apply` call receives one action per seat and resolves them all together.
+No committed choice is ever stored between calls — the seats can't see each other's
+choices because they decide simultaneously against a state that predates any of
+them, so there is nothing to hide and no state["committed"] to keep.
+
+STAGED COMMITS (only if the game genuinely collects commitments across SEPARATE
+decision points — e.g. sequential secret programming, where seats lock in one at a
+time before a later reveal): store each seat's locked choice under a state key
+(e.g. state["committed"][seat]) and, because the choices now persist between calls,
+`observe` MUST hide it from the OTHER seats until the reveal — a seat sees its own
+commitment in the clear, others see only whether that seat has committed.""",
     "reaction_windows": """\
 REACTION WINDOWS (block / challenge / Nope / instant). A "may respond" window is
 its own decision point, NOT part of resolving the announced action. Announce the
@@ -169,10 +178,14 @@ make responding useful: being asked is itself information. Sketch:
                 return [s]
         return []
 
-    # legal_actions during the window: the reaction plus an explicit decline.
+    # legal_actions during the window: decline is ALWAYS offered; add only the
+    # reactions THIS seat can actually play. The anti-leak rule governs to_act
+    # (who is ASKED = every rules-eligible responder, hand aside) — NOT the menu.
+    # A seat's own menu legitimately depends on its own hand: a seat holding no
+    # blocker gets decline as its only action. Never offer an unplayable reaction.
     if state["phase"] == "reaction":
         menu = [Action(seat=seat, name="decline", label="Decline")]
-        if self._may_react(state, seat):             # eligibility, never hidden hand
+        if self._can_block(state, seat):             # THIS seat's own playable reactions
             menu.append(Action(seat=seat, name="block", label="Block"))
         return menu
 
@@ -381,8 +394,11 @@ _TEST_GUIDANCE_BLOCKS: dict[MechanicTag, str] = {
     ),
     "simultaneous_decisions": (
         "- Simultaneous commit: pass one action per acting seat to a SINGLE "
-        "apply() call, and assert each seat's observation hides the other "
-        "seats' commitments until the reveal."
+        "apply() call. Assert observations hide the other seats' commitments "
+        "ONLY IF the game stages commits across separate decision points so a "
+        "commitment persists in state between calls; under the single-apply "
+        "model no committed state exists to hide (all seats decide against the "
+        "same pre-step state), so assert that instead."
     ),
     "reaction_windows": (
         "- Reaction window: after the trigger, to_act() returns the responder "
@@ -492,6 +508,13 @@ Repair rules — follow them exactly:
 Output the complete corrected module.
 """
 
+# Feedback appended to the test prompt when a previous run failed but no previous
+# test module is on hand to show (a prompt-shaping string — see prompts_fingerprint).
+_TEST_FEEDBACK_ONLY_SECTION = (
+    "\nA PREVIOUS VALIDATION RUN FAILED:\n\n{feedback}\n\n"
+    "If the failure was a wrong test (one that contradicts the digest), fix it.\n"
+)
+
 
 def generate_test_source(
     client: LLMClient,
@@ -507,10 +530,7 @@ def generate_test_source(
             previous_test_source=previous_test_source, feedback=feedback
         )
     elif feedback:
-        feedback_section = (
-            f"\nA PREVIOUS VALIDATION RUN FAILED:\n\n{feedback}\n\n"
-            "If the failure was a wrong test (one that contradicts the digest), fix it.\n"
-        )
+        feedback_section = _TEST_FEEDBACK_ONLY_SECTION.format(feedback=feedback)
     raw = client.complete(
         [
             {
@@ -540,10 +560,15 @@ def prompts_fingerprint() -> str:
     """A sha256 digest over every prompt/exemplar the codegen stages depend on.
 
     Recorded in meta.json for provenance: any edit to a prompt constant, the live
-    engine contract docstring, a shipped exemplar's source, or a guidance block
-    changes this fingerprint. Parts are joined with a NUL separator so a shift of
-    text across a boundary still changes the hash."""
+    engine contract docstring, a shipped exemplar's source, a guidance block, a
+    validation/pipeline feedback template, or the digest JSON schema (e.g. a new
+    MechanicTag) changes this fingerprint. Parts are joined with a NUL separator so
+    a shift of text across a boundary still changes the hash."""
+    import json
+
+    from playtest.ingestion import pipeline
     from playtest.ingestion.digest import _SYSTEM_PROMPT as _DIGEST_SYSTEM_PROMPT
+    from playtest.ingestion.validate import _TESTS_MAY_BE_WRONG_HINT
 
     parts = [
         _ENGINE_SYSTEM_PROMPT,
@@ -553,9 +578,14 @@ def prompts_fingerprint() -> str:
         _TEST_SYSTEM_PROMPT,
         _TEST_USER_PROMPT,
         _TEST_REPAIR_SECTION,
+        _TEST_FEEDBACK_ONLY_SECTION,
         _DIGEST_SYSTEM_PROMPT,
         _engine_contract(),
         _CONSERVATION_BULLET,
+        _TESTS_MAY_BE_WRONG_HINT,
+        pipeline._CODEGEN_INVALID_MODULE_FEEDBACK,
+        pipeline._DIGEST_FEEDBACK_TEMPLATE,
+        json.dumps(GameDigest.model_json_schema(), sort_keys=True),
         *_all_exemplar_sources(),
         *(f"{tag}={text}" for tag, text in sorted(_GUIDANCE_BLOCKS.items())),
         *(f"{tag}={text}" for tag, text in sorted(_TEST_GUIDANCE_BLOCKS.items())),
