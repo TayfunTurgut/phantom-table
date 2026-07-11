@@ -8,6 +8,7 @@ loop, and artifact persistence.
 """
 
 import importlib.metadata
+import json
 from pathlib import Path
 
 import pytest
@@ -17,7 +18,12 @@ from playtest.engine.loader import load_engine_from_path
 from playtest.errors import PlaytestError
 from playtest.ingestion import codegen, pipeline
 from playtest.ingestion.codegen import check_engine_source, extract_python, prompts_fingerprint
-from playtest.ingestion.digest import digest_to_markdown, digest_to_player_briefing
+from playtest.ingestion.digest import (
+    _digest_json_schema,
+    digest_to_markdown,
+    digest_to_player_briefing,
+    generate_digest,
+)
 from playtest.ingestion.pipeline import ingest_rulebook
 from playtest.ingestion.schemas import GameArtifacts, GameDigest
 from playtest.ingestion.validate import _clip
@@ -29,7 +35,9 @@ DIGEST = GameDigest(
     overview="Two players race to take the last token from a shared pool.",
     min_players=2,
     max_players=2,
+    mechanics=[],
     components=[{"name": "Token", "count": 7}],
+    zones="A single shared token pool: public, and conserved (tokens are removed, never added).",
     hidden_zones="Nothing is hidden; the pool is public.",
     setup="Place 7 tokens in a shared pool. player_1 goes first.",
     decision_flow="Players alternate turns. On your turn you take 1 or 2 tokens.",
@@ -43,6 +51,7 @@ DIGEST = GameDigest(
     ],
     end_conditions="The game ends when the pool is empty.",
     scoring="Whoever takes the last token wins. No ties are possible.",
+    max_decisions=70,
     state_shape=(
         '{"num_players": int, "pool": int, "taken": {seat: int}, '
         '"current_player": str, "rng_seed": int, "game_over": bool, "winners": [str]}'
@@ -306,7 +315,8 @@ def test_extract_python_prefers_largest_fence():
 def test_digest_schema_is_strict_compatible():
     """Strict structured outputs (`claude -p --json-schema`): every object must
     have additionalProperties=false and require every declared property; open-key
-    dicts (typed additionalProperties) are rejected."""
+    dicts (typed additionalProperties) are rejected. The generation schema forces
+    even the defaulted fields (mechanics/zones/max_decisions) into `required`."""
 
     def walk(node, path="$"):
         if isinstance(node, dict):
@@ -324,12 +334,84 @@ def test_digest_schema_is_strict_compatible():
             for i, value in enumerate(node):
                 walk(value, f"{path}[{i}]")
 
-    walk(GameDigest.model_json_schema())
+    schema = _digest_json_schema()
+    walk(schema)
+    # The new fields are present, required for generation, and the tag list is an enum.
+    for field in ("mechanics", "zones", "max_decisions"):
+        assert field in schema["required"], field
+    mechanics_items = schema["properties"]["mechanics"]["items"]
+    # $ref-indirected enum or inline enum, either way the tag vocabulary is closed.
+    if "$ref" in mechanics_items:
+        ref_name = mechanics_items["$ref"].rsplit("/", 1)[-1]
+        mechanics_items = schema["$defs"][ref_name]
+    assert "simultaneous_decisions" in mechanics_items["enum"]
+
+
+def test_old_config_digest_json_loads_without_new_fields():
+    """A digest.json generated before mechanics/zones/max_decisions existed still
+    loads; the defaults fill in."""
+    legacy = {
+        "game_name": "Legacy Game",
+        "overview": "An old digest with none of the new fields.",
+        "min_players": 2,
+        "max_players": 4,
+        "components": [{"name": "Card", "count": 20}],
+        "hidden_zones": "Hands are hidden.",
+        "setup": "Deal 5 cards each.",
+        "decision_flow": "Take turns.",
+        "actions": [{"name": "play_card", "when": "On your turn.", "effect": "Play a card."}],
+        "end_conditions": "Deck runs out.",
+        "scoring": "Most points wins.",
+        "state_shape": '{"rng_seed": int, "game_over": bool, "winners": [str]}',
+        "ambiguities": [],
+    }
+    digest = GameDigest.model_validate_json(json.dumps(legacy))
+    assert digest.mechanics == []
+    assert digest.zones == ""
+    assert digest.max_decisions == 0
+
+
+def test_old_config_loads_through_artifacts_loader(rulebook):
+    """GameArtifacts loads a config dir whose digest.json predates the new fields."""
+    client = StubLLMClient([DIGEST.model_dump_json(), _fenced(GOOD_ENGINE), _fenced(GOOD_TESTS)])
+    ingest_rulebook(rulebook, "token_duel", client=client)
+    config_dir = Path(get_settings().game_configs_dir) / "token_duel"
+    legacy = DIGEST.model_dump()
+    for field in ("mechanics", "zones", "max_decisions"):
+        legacy.pop(field)
+    (config_dir / "digest.json").write_text(json.dumps(legacy), encoding="utf-8")
+
+    artifacts = GameArtifacts(config_dir)
+    assert artifacts.digest.mechanics == []
+    assert artifacts.digest.zones == ""
+    assert artifacts.digest.max_decisions == 0
+
+
+def test_generate_digest_threads_feedback_into_the_llm_call():
+    client = StubLLMClient([DIGEST.model_dump_json()])
+    generate_digest(client, "RULES TEXT", feedback="Budget exhausted; stage the auction.")
+
+    messages = client.calls[-1]["messages"]
+    assert any("Budget exhausted; stage the auction." in m["content"] for m in messages)
+    # Without feedback, no extra message is appended.
+    client = StubLLMClient([DIGEST.model_dump_json()])
+    generate_digest(client, "RULES TEXT")
+    assert len(client.calls[-1]["messages"]) == 2
 
 
 def test_digest_renderings_cover_all_sections():
     md = digest_to_markdown(DIGEST)
-    for fragment in ("# Token Duel", "## Components", "Token × 7", "## Actions", "`take_two`"):
+    for fragment in (
+        "# Token Duel",
+        "## Mechanics",
+        "## Components",
+        "Token × 7",
+        "## Zones",
+        "shared token pool",
+        "**Decision budget:** 70",
+        "## Actions",
+        "`take_two`",
+    ):
         assert fragment in md
     briefing = digest_to_player_briefing(DIGEST)
     assert "take_one" in briefing and "Winning:" in briefing
@@ -364,6 +446,8 @@ def test_meta_json_has_provenance_fields(rulebook):
     assert artifacts.meta["games_per_count"] == get_settings().ingest_games_per_count
     assert artifacts.meta["prompt_fingerprint"] == prompts_fingerprint()
     assert artifacts.meta["playtest_version"] == importlib.metadata.version("playtest")
+    assert artifacts.meta["mechanics"] == DIGEST.mechanics
+    assert artifacts.meta["max_decisions"] == DIGEST.max_decisions
 
 
 def test_prompt_fingerprint_changes_when_prompt_constant_changes(monkeypatch):

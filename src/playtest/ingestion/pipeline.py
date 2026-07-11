@@ -186,6 +186,8 @@ def ingest_rulebook(
                         "game_name": digest.game_name,
                         "min_players": digest.min_players,
                         "max_players": digest.max_players,
+                        "mechanics": digest.mechanics,
+                        "max_decisions": digest.max_decisions,
                         "digest_model": client.models["digest"],
                         "codegen_model": client.models["codegen"],
                         "engine_attempts": attempt,
