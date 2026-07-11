@@ -44,7 +44,7 @@ def _smoke_test() -> None:
 
 def _run_ingest(
     rulebook: str,
-    name: str,
+    name: str | None,
     max_attempts: int | None = None,
     max_test_repairs: int | None = None,
     exemplar: str | None = None,
@@ -56,6 +56,7 @@ def _run_ingest(
 
     console = Console()
 
+    name = name or Path(rulebook).stem
     config_dir = Path(get_settings().game_configs_dir) / name
     if config_dir.exists():
         console.print(f"[yellow]Overwriting existing config for {name}[/yellow]")
@@ -258,7 +259,11 @@ def main() -> None:
     )
     ingest_parser.add_argument("--rulebook", type=str, required=True, help="Path to rulebook file")
     ingest_parser.add_argument(
-        "--name", type=str, required=True, help="Game name (used as config directory name)"
+        "--name",
+        type=str,
+        default=None,
+        help="Game name (used as config directory name); defaults to the rulebook "
+        "filename without its extension",
     )
     ingest_parser.add_argument(
         "--max-attempts",
