@@ -162,6 +162,13 @@ def test_taking_last_token_wins():
 
 BROKEN_ENGINE = "def class oops(:\n"
 
+# Parses and imports cleanly (passes check_engine_source) but references an
+# undefined name — only ruff's F821 catches this, not the AST check.
+BAD_LINT_ENGINE = GOOD_ENGINE.replace(
+    'state["current_player"] = seats[(idx + 1) % len(seats)]',
+    'state["current_player"] = totally_undefined_name',
+)
+
 # Fails against GOOD_ENGINE although the engine is correct (pool starts at 7).
 BAD_TESTS = """
 from pathlib import Path
@@ -282,6 +289,25 @@ def test_repair_loop_recovers_from_broken_codegen(rulebook):
     assert artifacts.meta["engine_attempts"] == 2
 
 
+def test_lint_failure_routes_to_regeneration(rulebook):
+    """A ruff-only bug (undefined name) is caught before validation and routed
+    through the same invalid-module regeneration path as unparseable code."""
+    client = StubLLMClient(
+        [
+            DIGEST.model_dump_json(),
+            _fenced(BAD_LINT_ENGINE),  # attempt 1: undefined name (F821)
+            _fenced(GOOD_ENGINE),  # attempt 2: good
+            _fenced(GOOD_TESTS),
+        ]
+    )
+    artifacts = ingest_rulebook(rulebook, "token_duel", client=client)
+    assert artifacts.meta["engine_attempts"] == 2
+    # Attempt 1's engine generation fails before a test module exists, so the
+    # ruff feedback carries into attempt 2's TEST generation call.
+    repair_request = client.calls[3]["messages"][-1]["content"]
+    assert "F821" in repair_request
+
+
 def test_ingest_rejects_unsafe_game_name(rulebook, tmp_path):
     # "../evil" would rmtree/create OUTSIDE game_configs_dir; reject before any FS work.
     client = StubLLMClient([])
@@ -313,6 +339,20 @@ def test_check_engine_source_rejects_disallowed_imports():
 def test_check_engine_source_rejects_syntax_errors():
     with pytest.raises(PlaytestError, match="does not parse"):
         check_engine_source(BROKEN_ENGINE)
+
+
+def test_lint_source_rejects_undefined_name():
+    with pytest.raises(PlaytestError, match="F821"):
+        codegen.lint_source("def f():\n    return undefined_name\n", "engine.py")
+
+
+def test_lint_source_accepts_clean_source():
+    codegen.lint_source("def f():\n    return 1\n", "engine.py")
+
+
+def test_lint_source_skips_silently_when_ruff_unavailable(monkeypatch):
+    monkeypatch.setattr(codegen, "find_spec", lambda name: None)
+    codegen.lint_source("def f():\n    return undefined_name\n", "engine.py")
 
 
 def test_extract_python_prefers_largest_fence():

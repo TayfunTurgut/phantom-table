@@ -6,6 +6,9 @@ import ast
 import hashlib
 import inspect
 import re
+import subprocess
+import sys
+from importlib.util import find_spec
 from types import ModuleType
 
 import playtest.engine
@@ -101,6 +104,35 @@ def check_engine_source(source: str, *, extra_allowed: set[str] | None = None) -
                     f"generated code imports {root!r}, which is outside the allowlist "
                     f"{sorted(allowed)}"
                 )
+
+
+def lint_source(source: str, filename: str) -> None:
+    """Fast ruff error-gate: undefined names and syntax-adjacent errors (F, E9),
+    run BEFORE the multi-minute validation stage. Best-effort — ruff is a dev
+    extra, so a missing or unstartable ruff is a silent no-op, not a failure."""
+    if find_spec("ruff") is None:
+        return
+    try:
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "ruff",
+                "check",
+                "--select",
+                "F,E9",
+                "--stdin-filename",
+                filename,
+                "-",
+            ],
+            input=source,
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return
+    if result.returncode != 0 and result.stdout.strip():
+        raise PlaytestError(f"generated code failed ruff check ({filename}):\n\n{result.stdout}")
 
 
 # Mechanic-conditional guidance appended to the engine prompt. The two starred
@@ -314,6 +346,7 @@ def generate_engine_source(
     )
     source = extract_python(raw)
     check_engine_source(source)
+    lint_source(source, "engine.py")
     return source
 
 
@@ -487,6 +520,7 @@ def generate_test_source(
     )
     source = extract_python(raw)
     check_engine_source(source, extra_allowed=_TEST_ALLOWED_EXTRA)
+    lint_source(source, "test_engine.py")
     return source
 
 
