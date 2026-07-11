@@ -71,8 +71,8 @@ Offline: 207 tests pass, ruff and mypy clean. End-to-end (real ingests):
 
 | Game | Purpose | Status |
 |---|---|---|
-| Love Letter (re-ingest) | sequential-path regression | **passed** — validated on engine attempt 1 (1 test repair), matching its historical run. Note: the digest tagged `multi_stage_turns` (card→target→guess), routing it to the `six_nimmt` exemplar — a mis-route per intent that nonetheless generated a working engine first try. The `multi_stage_turns` tag definition has since been tightened (tag only when a single menu would be impractically large, not merely multi-parameter); re-ingest to confirm it now routes to `love_letter` |
-| Hanabi (re-ingest) | co-op regression | interrupted mid-run — its `game_configs/hanabi/` dir was wiped by the re-ingest start and now needs `uv run playtest ingest --rulebook rulebooks/hanabi.txt --name hanabi` re-run before Hanabi can be played |
+| Love Letter (re-ingest) | sequential-path regression | **passed** — routes to the `love_letter` exemplar (an earlier run mis-tagged `multi_stage_turns` and routed to `six_nimmt`, yet still validated first try; the tag definition was tightened and the re-run tags correctly). Validated with 2 engine attempts (attempt 1 caught cheaply at the generation gate and repaired via feedback), 1 test repair, digest attempt 1. Budget: 1000 decisions |
+| Hanabi (re-ingest) | co-op regression | **passed** — `love_letter` exemplar, mechanics `hidden_hands`; 2 engine attempts (same cheap generation-gate repair pattern), 0 test repairs, digest attempt 1. Budget: 600 decisions |
 | Sushi Go | first generated simultaneous-drafting engine (headline proof of exemplar routing) | awaiting rulebook |
 | Coup | reaction/challenge windows end-to-end | awaiting rulebook |
 | For Sale (or High Society) | staged open bidding under the menu cap | awaiting rulebook |
