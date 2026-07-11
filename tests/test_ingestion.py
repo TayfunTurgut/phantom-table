@@ -579,6 +579,24 @@ def test_ingest_inflates_meta_max_decisions_when_digest_guessed_low(rulebook):
     assert artifacts.meta["max_decisions"] % _MAX_DECISIONS_SAFETY_FACTOR == 0
 
 
+def test_prompt_fingerprint_captured_before_any_llm_call(rulebook, monkeypatch):
+    """The fingerprint reflects the prompt state generation ran with, and computing
+    it at the end would crash a finished ingest if sources changed mid-run."""
+    client = StubLLMClient([DIGEST.model_dump_json(), _fenced(GOOD_ENGINE), _fenced(GOOD_TESTS)])
+    calls_when_captured: list[int] = []
+    real = prompts_fingerprint
+
+    def spy() -> str:
+        calls_when_captured.append(len(client.calls))
+        return real()
+
+    monkeypatch.setattr(pipeline, "prompts_fingerprint", spy)
+    artifacts = ingest_rulebook(rulebook, "token_duel", client=client)
+
+    assert calls_when_captured == [0]
+    assert artifacts.meta["prompt_fingerprint"] == real()
+
+
 def test_prompt_fingerprint_changes_when_prompt_constant_changes(monkeypatch):
     before = prompts_fingerprint()
     monkeypatch.setattr(codegen, "_ENGINE_SYSTEM_PROMPT", codegen._ENGINE_SYSTEM_PROMPT + " ")

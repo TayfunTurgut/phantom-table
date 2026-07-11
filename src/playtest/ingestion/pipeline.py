@@ -280,6 +280,11 @@ def ingest_rulebook(
     if client is None:
         client = create_llm_client(settings)
 
+    # Captured up front: this is the prompt state generation actually runs with,
+    # and reading module sources again at the end would crash the whole run if
+    # the working tree changed underneath a long ingest.
+    prompt_fingerprint = prompts_fingerprint()
+
     rulebook_text = Path(rulebook_path).read_text(encoding="utf-8")
     config_dir = Path(settings.game_configs_dir) / game_name
     if config_dir.exists():
@@ -327,7 +332,7 @@ def ingest_rulebook(
                         "engine_attempts": outcome.attempt,
                         "test_repairs": outcome.test_repairs,
                         "games_per_count": games_per_count,
-                        "prompt_fingerprint": prompts_fingerprint(),
+                        "prompt_fingerprint": prompt_fingerprint,
                         "playtest_version": importlib.metadata.version("playtest"),
                         "ingested_at": datetime.now(UTC).isoformat(),
                         "digest_attempts": digest_attempt,
