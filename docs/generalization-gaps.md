@@ -73,7 +73,7 @@ Offline: 207 tests pass, ruff and mypy clean. End-to-end (real ingests):
 |---|---|---|
 | Love Letter (re-ingest) | sequential-path regression | **passed** — routes to the `love_letter` exemplar (an earlier run mis-tagged `multi_stage_turns` and routed to `six_nimmt`, yet still validated first try; the tag definition was tightened and the re-run tags correctly). Validated with 2 engine attempts (attempt 1 caught cheaply at the generation gate and repaired via feedback), 1 test repair, digest attempt 1. Budget: 1000 decisions |
 | Hanabi (re-ingest) | co-op regression | **passed** — `love_letter` exemplar, mechanics `hidden_hands`; 2 engine attempts (same cheap generation-gate repair pattern), 0 test repairs, digest attempt 1. Budget: 600 decisions |
-| Sushi Go | first generated simultaneous-drafting engine (headline proof of exemplar routing) | awaiting rulebook |
+| Sushi Go | first generated simultaneous-drafting engine (headline proof of exemplar routing) | **passed** — routes to the `six_nimmt` exemplar, mechanics `simultaneous_decisions` / `hidden_hands` / `rounds_with_redeals`; 3 engine attempts, 0 test repairs, digest attempt 1. Budget: 2000 decisions |
 | Coup | reaction/challenge windows end-to-end | awaiting rulebook |
 | For Sale (or High Society) | staged open bidding under the menu cap | awaiting rulebook |
 | Splendor | open supply + market display (zones / de-conserved tests) | awaiting rulebook |
