@@ -1,0 +1,286 @@
+SUSHI GO!
+
+
+OVERVIEW
+
+Sushi Go! is a fast card-drafting game for 2 to 5 players. Over the course of
+three rounds, players pass hands of sushi cards around the table, each keeping
+one card per turn to build the most valuable meal. Different sushi combinations
+score in different ways - some reward sets, some reward having the most of a
+type, and some (pudding) are only settled at the very end of the game. Whoever
+has the most points after three rounds and the final dessert scoring wins.
+
+A full game consists of 3 rounds. Each round, hands shrink one card at a time
+until every card has been placed. Cards you keep are scored at the end of each
+round, except pudding, which is set aside and scored only once, at the end of
+the whole game.
+
+
+COMPONENTS
+
+108 cards total:
+
+- Tempura x14
+- Sashimi x14
+- Dumpling x14
+- Maki Roll cards x26 total, made up of: 6 cards showing 1 maki-roll icon,
+  12 cards showing 2 maki-roll icons, and 8 cards showing 3 maki-roll icons
+  (54 maki icons in all)
+- Salmon Nigiri x10 (base value 2)
+- Squid Nigiri x5 (base value 3)
+- Egg Nigiri x5 (base value 1)
+- Wasabi x6
+- Chopsticks x4
+- Pudding x10
+
+You also need a pencil and a piece of paper to keep score; these are not
+included in the box.
+
+
+SETUP
+
+1. Shuffle all 108 cards together thoroughly.
+
+2. Deal a hand to each player, face-down. The size of each hand depends on the
+   number of players:
+   - 2 players: deal 10 cards to each player.
+   - 3 players: deal 9 cards to each player.
+   - 4 players: deal 8 cards to each player.
+   - 5 players: deal 7 cards to each player.
+
+3. Each player holds their hand in their hands, kept secret from opponents.
+
+4. Place all remaining cards in a single face-down draw pile in the center of
+   the playing area.
+
+5. Choose one player to be the scorekeeper, who records scores on the paper.
+
+Each player has an empty play area in front of them at the start; collected
+(face-up) cards will accumulate there during the round.
+
+
+HOW A TURN WORKS
+
+The game is played over 3 rounds, and each round is made up of a series of
+simultaneous turns.
+
+On every turn:
+
+1. All players secretly choose one card from their current hand that they want
+   to keep, and place it face-down in front of themselves.
+
+2. Once everyone has chosen, all players reveal their chosen cards at the same
+   time, placing them face-up in their own play area.
+
+3. Each player then passes their entire remaining hand face-down to the player
+   on their left.
+
+4. Everyone picks up the new hand passed to them. This new hand is one card
+   smaller than before. The next turn begins with this new, smaller hand.
+
+Turns repeat this way, with hands getting smaller each time, until the hands
+are used up.
+
+Face-up cards you have revealed stay in your play area until the end of the
+round, when they are scored. It helps to group cards of the same type together
+as you collect them.
+
+The final card: When a hand is down to its last single card, that card is
+passed on as usual; the player receiving it simply places it face-up with the
+rest of their collected cards (there is no choice to make, since only one card
+remains). This last card is often not useful, but occasionally a player will be
+forced to hand over something valuable.
+
+
+ACTIONS AND CARD EFFECTS
+
+Cards are scored at the end of each round (except pudding). Their effects and
+values are as follows.
+
+Maki Rolls. Each maki roll card shows 1, 2, or 3 maki-roll icons at its top.
+Maki cards are not scored individually; instead, at the end of the round, each
+player totals the icons across all their maki cards, and points are awarded by
+comparison between players (see Scoring and Tiebreakers).
+
+Tempura. A set of exactly 2 tempura cards scores 5 points. A single, unpaired
+tempura card is worth nothing. You may score multiple sets of tempura in the
+same round (each complete pair of 2 is worth 5). Leftover tempura that does not
+complete a pair scores nothing.
+
+Sashimi. A set of exactly 3 sashimi cards scores 10 points. A single sashimi,
+or a set of only 2, is worth nothing. You may score multiple sets of 3 in the
+same round (each complete set of 3 is worth 10). Leftover sashimi that does not
+complete a set of 3 scores nothing.
+
+Dumplings. The more dumpling cards you collect, the more points you score, on
+an accelerating scale based on your total number of dumplings:
+   - 1 dumpling = 1 point
+   - 2 dumplings = 3 points
+   - 3 dumplings = 6 points
+   - 4 dumplings = 10 points
+   - 5 or more dumplings = 15 points (15 is the maximum; additional dumplings
+     beyond 5 add nothing)
+
+Nigiri. Nigiri cards score a fixed value on their own:
+   - Squid Nigiri = 3 points
+   - Salmon Nigiri = 2 points
+   - Egg Nigiri = 1 point
+
+Wasabi. A wasabi card by itself scores nothing. Instead, wasabi triples the
+value of the next nigiri card you play after it. When you choose and reveal a
+squid, salmon, or egg nigiri and you already have a wasabi card in front of you
+with no nigiri on it, that nigiri must be placed on top of the wasabi, and its
+value is tripled:
+   - Squid Nigiri on wasabi = 9 points
+   - Salmon Nigiri on wasabi = 6 points
+   - Egg Nigiri on wasabi = 3 points
+
+You may have multiple wasabi cards in front of you, but only 1 nigiri card may
+be placed on each wasabi. Because wasabi affects only the next nigiri played
+after it, a nigiri you played before acquiring a wasabi is not tripled
+retroactively. If you play a nigiri while you have no empty wasabi available,
+that nigiri simply scores its normal (untripled) value. A wasabi that never
+receives a nigiri scores nothing.
+
+Chopsticks. A chopsticks card scores nothing on its own. Its purpose is to let
+you take two cards on a later turn. Here is how it works: if you already have a
+chopsticks card face-up in front of you (played on an earlier turn), then on a
+future turn you may first choose one card from your hand as usual, and then,
+before everyone else reveals their cards, call out "Sushi Go!" and take a
+second card from your hand, also placing it face-down. All players then reveal
+their cards; you reveal both of yours. Before passing hands, you put the
+chopsticks card back into your hand, so it is passed on with the rest of your
+hand and other players may take it and use it again.
+
+Chopsticks limitations and edge cases:
+   - You cannot play a chopsticks card and use it on the same turn; it must
+     already be in front of you from a previous turn.
+   - You may have multiple chopsticks cards in front of you, but you may use
+     only 1 per turn.
+   - Using chopsticks requires at least two cards in hand to take. On the final
+     turn of a round, each hand holds only a single card, so chopsticks cannot
+     be used then.
+
+Pudding. Pudding cards are not scored during rounds. They are kept in front of
+you (not discarded) and scored only once, at the very end of the game (see End
+of Round / End of Game and Scoring).
+
+
+END OF ROUND / END OF GAME
+
+Ending a round. When the last card of each hand has been passed on and placed
+face-up, the round is over. Score all collected cards according to the rules
+above, and then:
+
+1. Announce your round score for the scorekeeper to record.
+
+2. Discard all of your scored cards face-up in a discard pile beside the
+   central draw pile. The only exception is pudding cards: keep every pudding
+   card in front of you, unscored, to be tallied at the end of the game.
+
+3. Deal every player a new hand from the central draw pile, equal in size to
+   that round's hand (10/9/8/7 cards for 2/3/4/5 players, the same as the
+   previous round).
+
+Then play the next round exactly as before. Discarded cards do not return to
+the draw pile; the deck of 108 cards is large enough that the draw pile never
+runs out across all three rounds for any supported player count.
+
+Ending the game. After the third round has been scored, some cards will remain
+in the central draw pile. These leftover cards are simply ignored. Now score
+the puddings (see Scoring). Add each player's three round scores plus their
+pudding result to get their final total.
+
+
+SCORING AND TIEBREAKERS
+
+Maki Rolls (end of each round). Compare the total number of maki-roll icons
+each player collected.
+   - The player with the most icons scores 6 points.
+   - The player with the second most icons scores 3 points.
+   - If two or more players tie for most, they split the 6 points evenly,
+     ignoring any remainder, and no second-place points are awarded that round.
+   - If two or more players tie for second, they split the 3 points evenly,
+     ignoring any remainder.
+   - Example: Chris has 5 maki icons, Phil has 3, Amy has 3, and Lisa has 2.
+     Chris has the most and scores 6. Phil and Amy tie for second and split the
+     3 points, scoring 1 each (remainder ignored). Lisa scores nothing.
+
+Tempura, Sashimi, Dumplings, Nigiri, Wasabi, Chopsticks (end of each round).
+Scored as described under Actions and Card Effects. These are individual to
+each player, so there are no player-versus-player ties to break.
+
+Puddings (end of the game only).
+   - The player with the most pudding cards scores 6 points.
+   - The player with the fewest pudding cards, including any player who has
+     none, loses 6 points.
+   - If two or more players tie for most, they split the 6 points evenly,
+     ignoring any remainder.
+   - If two or more players tie for least, they split the lost 6 points evenly,
+     ignoring any remainder (each loses their share).
+   - If all players have the same number of pudding cards, no one gains or
+     loses any points for pudding.
+   - Example: Chris has 4 puddings, Phil has 3, Lisa and Amy each have 0. Chris
+     has the most and scores 6. Lisa and Amy tie for the least and split the
+     -6, each losing 3.
+   - 2-player exception: In a 2-player game, no one loses points for having the
+     fewest puddings. Only the +6 for having the most pudding cards is awarded.
+
+Winning. After all three rounds and pudding scoring, the player with the
+highest total score wins. If two or more players tie on total score, the tie is
+broken in favor of whoever has the most pudding cards.
+
+
+HIDDEN INFORMATION
+
+- Your hand is held in your hands and kept secret from all opponents. No one
+  may look at another player's hand.
+
+- Chosen cards are placed face-down each turn and remain hidden until the
+  simultaneous reveal, so no one knows what any other player picked until
+  everyone reveals at once.
+
+- Collected (revealed) cards in each player's play area are face-up and fully
+  visible to everyone for the rest of the round. Pudding cards kept between
+  rounds are likewise face-up and visible to all.
+
+- The central draw pile is face-down; its contents and order are unknown to
+  everyone. The discard pile beside it is face-up.
+
+- Because hands are passed around, over the course of a round you will see (and
+  be able to remember) cards that pass through your hand, but you cannot see
+  cards currently held by other players.
+
+
+CLARIFICATIONS
+
+- Base-game player counts. The standard game supports 2, 3, 4, and 5 players,
+  all using the same core loop (choose a card, reveal simultaneously, pass the
+  whole remaining hand to the left, three rounds). The 2-player game uses this
+  same core loop with 10-card hands and the pudding "least" penalty removed, as
+  stated in Scoring. (The rulebook also describes optional alternative ways to
+  play, but those are not part of this core ruleset and are excluded here.)
+
+- [UNCLEAR: Maki second place when the runner-up total is zero.] The rules say
+  the player with the second-most maki icons scores 3 points, but do not state
+  whether a player must have at least 1 maki icon to qualify. Options
+  considered: (a) any player who is strictly second, even with 0 icons, scores
+  the 3 points; (b) a player with 0 maki icons cannot place second and the 3
+  points go unawarded (or are shared only among players who have at least 1
+  icon). Note the rulebook is explicit that 0 counts as "least" for pudding,
+  but gives no equivalent statement for maki.
+
+- [UNCLEAR: Maki when no one has any maki icons.] If no player collected any
+  maki cards in a round, the rulebook does not say whether the 6 and 3 points
+  are awarded, split, or skipped. Assumed intent is that no maki points are
+  awarded that round, but this is not stated.
+
+- [UNCLEAR: Overall tie that is also a pudding tie.] The winner is decided by
+  most pudding cards in the event of a points tie. The rules do not specify how
+  to resolve a tie when the tied players also have the same number of pudding
+  cards. Options considered: (a) declare a shared victory; (b) play a further
+  tiebreaker of the group's choosing. The rulebook provides no default.
+
+- Order of nigiri and wasabi. Wasabi affects only the next nigiri placed after
+  it. If a player deliberately plays nigiri before acquiring a wasabi, that
+  nigiri is not tripled; this is treated as intended behavior, not an error.
