@@ -325,7 +325,7 @@ def main() -> None:
         "--checkpoint",
         type=str,
         default=None,
-        help="Path to write a per-turn resume checkpoint (enables `resume`)",
+        help="Path to a .json file to write a per-turn resume checkpoint to (enables `resume`)",
     )
 
     # Subcommand: resume
@@ -333,7 +333,7 @@ def main() -> None:
         "resume", help="Continue a game from a per-turn checkpoint"
     )
     resume_parser.add_argument(
-        "--checkpoint", type=str, required=True, help="Path to a checkpoint JSON"
+        "--checkpoint", type=str, required=True, help="Path to a checkpoint .json file"
     )
     resume_parser.add_argument(
         "--log-file", type=str, default=None, help="Path to save game log JSON"
